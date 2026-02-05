@@ -1,0 +1,87 @@
+"""
+Docstring for models.OrcidSearchClient
+
+OrcidSearchClient class is a client for the ORCID Public API.
+Since the ORCID Public API has a result limit of 10,000, this class takes that into account.
+Responsibilities:
+1) Build requests
+2) Execute search
+3) Handle paging and rate limits
+3) Return result  count and ORCIDs
+"""
+
+import requests
+import time
+from typing import List, Optional
+from .QueryPartition import QueryPartition
+from .OrcidProfile import OrcidProfile
+
+
+class OrcidSearchClient:
+    BASE_URL = "https://pub.orcid.org/v3.0/expanded-search/"
+
+    def __init__(self, client_id: str, rate_limit_delay: float = 0.1):
+        self.rate_limit_delay = rate_limit_delay
+
+        self.headers = {
+            "Accept": "application/json", # request in json format
+            "User-Agent": f"orcid-harvester/{client_id}"
+        }
+
+    """
+    Lightweight request to check how many results exist.
+    """
+    def estimate_count(self, partition: QueryPartition) -> int:
+        params = {
+            "q": partition.to_query_string(),
+            "rows": 0
+        }
+
+        response = requests.get(self.BASE_URL, headers=self.headers, params=params)
+        response.raise_for_status()
+
+        return response.json().get("num-found", 0)
+
+    """
+    Fetch all ORCID profiles for a safe partition (≤ 10^4).
+    Returns complete profile data including names, emails, and institutions.
+    """
+    def fetch_orcids(self, partition: QueryPartition, rows: int = 1000) -> List[OrcidProfile]:
+        start = 0
+        profiles = []
+
+        while True:
+            params = {
+                "q": partition.to_query_string(),
+                "start": start,
+                "rows": rows
+            }
+
+            response = requests.get(self.BASE_URL, headers=self.headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+            results = data.get("expanded-result", [])
+            if not results:
+                break
+
+            for r in results:
+                profile = OrcidProfile(
+                    orcid_id=r.get("orcid-id", ""),
+                    given_names=r.get("given-names"),
+                    family_names=r.get("family-names"),
+                    credit_name=r.get("credit-name"),
+                    other_names=r.get("other-name", []) if r.get("other-name") else [],
+                    emails=r.get("email", []) if r.get("email") else [],
+                    institution_names=r.get("institution-name", []) if r.get("institution-name") else []
+                )
+                profiles.append(profile)
+
+            if len(results) < rows:
+                break
+
+            start += rows
+            time.sleep(self.rate_limit_delay)
+
+        return profiles
+
