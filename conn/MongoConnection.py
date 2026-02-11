@@ -11,3 +11,6 @@ class MongoConnection:
 
     def partitions(self):
         return self.db.partitions
+    
+    def works(self):
+        return self.db.works

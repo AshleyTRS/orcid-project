@@ -18,11 +18,9 @@ from .OrcidProfile import OrcidProfile
 
 
 class OrcidSearchClient:
-    BASE_URL = "https://pub.orcid.org/v3.0/expanded-search/"
-
-    def __init__(self, client_id: str, rate_limit_delay: float = 0.1):
+    def __init__(self, endpoint: str, client_id: str, rate_limit_delay: float = 0.1):
         self.rate_limit_delay = rate_limit_delay
-
+        self.endpoint = endpoint
         self.headers = {
             "Accept": "application/json", # request in json format
             "User-Agent": f"orcid-harvester/{client_id}"
@@ -37,7 +35,7 @@ class OrcidSearchClient:
             "rows": 0
         }
 
-        response = requests.get(self.BASE_URL, headers=self.headers, params=params)
+        response = requests.get(self.endpoint, headers=self.headers, params=params)
         response.raise_for_status()
 
         return response.json().get("num-found", 0)
@@ -57,7 +55,7 @@ class OrcidSearchClient:
                 "rows": rows
             }
 
-            response = requests.get(self.BASE_URL, headers=self.headers, params=params)
+            response = requests.get(self.endpoint, headers=self.headers, params=params)
             response.raise_for_status()
             data = response.json()
 
@@ -85,3 +83,5 @@ class OrcidSearchClient:
 
         return profiles
 
+    def get_works(self, ):
+        print()

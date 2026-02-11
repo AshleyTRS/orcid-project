@@ -26,3 +26,25 @@ class OrcidStorage:
                 })
             except DuplicateKeyError:
                 pass  # already stored
+    
+    def find_unharvested(self, limit=None):
+        cursor = self.collection.find(
+            {"harvested": False},
+            {"orcid_id": 1}
+        )
+        if limit:
+            cursor = cursor.limit(limit)
+        return list(cursor)
+
+
+    def mark_harvested(self, orcid_id: str, works_count: int, harvested_at):
+        self.collection.update_one(
+            {"orcid_id": orcid_id},
+            {
+                "$set": {
+                    "harvested": True,
+                    "works_harvested_at": harvested_at,
+                    "works_count": works_count
+                }
+            }
+        )
