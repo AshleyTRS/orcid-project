@@ -1,7 +1,7 @@
 import requests
 import json
 
-URL = "https://pub.orcid.org/v3.0/0000-0003-2043-8766/works/161465810"
+URL = "https://pub.orcid.org/v3.0/0000-0003-2043-8766/work/161465810"
 
 headers = {
     "Accept": "application/json",

@@ -1,7 +1,7 @@
-from datetime import datetime
-from search_models import OrcidSearchClient
-from harvest_works_models import WorkHarvester, WorkStorage
-from conn.MongoConnection import MongoConnection
+from datetime import datetime, timezone
+from ..search_models import OrcidSearchClient
+from ..harvest_works_models import WorkHarvester, WorkStorage
+from ..conn.MongoConnection import MongoConnection
 from dotenv import load_dotenv
 import os
 
@@ -17,8 +17,9 @@ def main():
     # initialize work collection (storage)
     work_storage = WorkStorage(mongo.partitions())
 
-    API_ENDPOINT = "https://pub.orcid.org/v3.0/0000-0003-2043-8766/works"
+    API_ENDPOINT = "https://pub.orcid.org/v3.0/"
     API_TOKEN = os.getenv("ACCESS_TOKEN")
+    
     # initialize ORCID client
     orcid_client = OrcidSearchClient(API_ENDPOINT, client_id=API_TOKEN)
 
@@ -34,7 +35,7 @@ def main():
 
     print("---------- RESULT ----------")
     print(f"Works harvested: {harvested_count}")
-    print(f"Finished at: {datetime.utcnow().isoformat()}")
+    print(f"Finished at: {datetime.now(timezone.utc).isoformat()}")
 
 if __name__ == "__main__":
     main()

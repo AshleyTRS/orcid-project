@@ -1,9 +1,6 @@
-"""
-Docstring for harvest_works_models.Work
-Dataclass to normalize data before inserting document into mongo collection.
-"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Optional
+
 
 @dataclass
 class Work:
@@ -13,8 +10,9 @@ class Work:
     journal_title: Optional[str]
     publication_year: Optional[int]
     work_type: Optional[str]
-    external_ids: List[Dict]  # like DOI
-    visibility: Optional[str]
+    external_ids: List[Dict]
+    contributors: List[Dict] = field(default_factory=list)
+    visibility: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -25,5 +23,6 @@ class Work:
             "publication_year": self.publication_year,
             "type": self.work_type,
             "external_ids": self.external_ids,
+            "contributors": self.contributors,
             "visibility": self.visibility
         }

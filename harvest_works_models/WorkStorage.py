@@ -14,6 +14,10 @@ class WorkStorage:
             [("orcid_id", 1), ("put_code", 1)],
             unique=True
         ) # create index to ensure uniqueness
+        self.collection.create_index("orcid_id")
+        self.collection.create_index("external_ids.value")
+        self.collection.create_index("contributors.normalized_name")
+        self.collection.create_index("contributors.orcid_id", sparse=True)
 
     """
     This function inserts work into MongoDB. If work is successfully inserted, then it return True.
