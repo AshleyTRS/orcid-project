@@ -43,6 +43,8 @@ def main():
     engine.seed(seeds[selected_seed])
     engine.run()
 
+    mongo.close()
+
 
 if __name__ == "__main__":
     main()

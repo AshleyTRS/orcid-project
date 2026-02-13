@@ -12,6 +12,7 @@ Responsibilities:
 
 import requests
 import time
+import json
 from typing import List, Optional
 from .QueryPartition import QueryPartition
 from .OrcidProfile import OrcidProfile
@@ -94,18 +95,24 @@ class OrcidSearchClient:
 
         time.sleep(self.rate_limit_delay)
 
-        return response.json()
+        data = response.json()
+        # print(data)
+        return data
 
     """
         Fetch a single work record for a given ORCID and put-code.
         Returns the raw JSON response.
     """
     def get_work(self, orcid_id: str, put_code: int) -> dict:
-        url = self.endpoint + "/" + orcid_id + "/work/" + put_code
+        url = self.endpoint + "/" + str(orcid_id) + "/work/" + str(put_code)
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()
 
         time.sleep(self.rate_limit_delay)
+
+        data = response.json()
+
+        # print(json.dumps(data, indent=2))
 
         return response.json()
 

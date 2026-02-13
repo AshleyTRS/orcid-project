@@ -1,69 +1,41 @@
 from datetime import datetime
-from search_models import OrcidStorage, OrcidSearchClient
-from harvest_works_models import WorkStorage, WorkHarvester
+from dotenv import load_dotenv
+import os
+from conn.MongoConnection import MongoConnection
+from search_models.OrcidStorage import OrcidStorage
+from search_models.OrcidSearchClient import OrcidSearchClient
+from harvest_works_models.WorkStorage import WorkStorage
+from harvest_works_models.WorkHarvester import WorkHarvester
 
 
 def main():
-    # ---------- CONFIG ----------
-    MONGO_URI = "mongodb://localhost:27017"
-    DB_NAME = "orcid_db"
-
-    ORCID_COLLECTION = "orcids"
-    WORKS_COLLECTION = "works"
-
-    # ---------- INIT ----------
-
-    orcid_storage = OrcidStorage(
-        mongo_uri=MONGO_URI,
-        db_name=DB_NAME,
-        collection_name=ORCID_COLLECTION
+    load_dotenv()
+    mongo = MongoConnection(
+        uri = os.getenv("MONGO_CONN"),
+        db_name= os.getenv("DB_NAME")
     )
 
-    work_storage = WorkStorage(
-        mongo_uri=MONGO_URI,
-        db_name=DB_NAME,
-        collection_name=WORKS_COLLECTION
-    )
+    # Initialize mongo collections
+    orcid_storage = OrcidStorage(mongo.orcids())
+    work_storage = WorkStorage(mongo.works())
 
-    API_ENDPOINT = ""
+    API_ENDPOINT = "https://pub.orcid.org/v3.0"
+    API_TOKEN = os.getenv("ACCESS_TOKEN")
     
-    orcid_client = OrcidSearchClient()
+    # initialize ORCID client
+    orcid_client = OrcidSearchClient(API_ENDPOINT, client_id=API_TOKEN)
 
+    # initialize harvester
     harvester = WorkHarvester(
-        record_client=orcid_client,
+        client=orcid_client,
         orcid_storage=orcid_storage,
         work_storage=work_storage
     )
 
-    # ---------- FETCH ORCIDS ----------
-    print("Fetching ORCIDs from database...")
-    orcids = orcid_storage.get_all_orcids()
+    # harvest works
+    harvester.harvest_all()
 
-    print(f"Found {len(orcids)} ORCIDs")
-
-    total_works = 0
-    processed_orcids = 0
-
-    # ---------- HARVEST LOOP ----------
-    for orcid_doc in orcids:
-        orcid = orcid_doc["orcid"]
-        print(f"\nHarvesting works for ORCID: {orcid}")
-
-        try:
-            count = harvester.harvest(orcid=orcid)
-            total_works += count
-            processed_orcids += 1
-
-            print(f"  → {count} works harvested")
-
-        except Exception as e:
-            print(f"  ✖ Failed for {orcid}: {e}")
-
-    # ---------- SUMMARY ----------
-    print("\n========== HARVEST SUMMARY ==========")
-    print(f"ORCIDs processed : {processed_orcids}")
-    print(f"Total works      : {total_works}")
-    print(f"Finished at      : {datetime.utcnow().isoformat()}")
+    mongo.close()
 
 
 if __name__ == "__main__":

@@ -27,8 +27,10 @@ class WorkStorage:
         try:
             work["harvested_at"] = datetime.now(timezone.utc)
             self.collection.insert_one(work)
+            print("Work was added to collection")
             return True
         except DuplicateKeyError:
+            print("There was an error.")
             return False
 
     def count_by_orcid(self, orcid_id: str) -> int:
