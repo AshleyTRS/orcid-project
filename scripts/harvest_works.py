@@ -1,12 +1,11 @@
 from datetime import datetime
 from dotenv import load_dotenv
 import os
-from conn.MongoConnection import MongoConnection
-from search_models.OrcidStorage import OrcidStorage
-from search_models.OrcidSearchClient import OrcidSearchClient
-from harvest_works_models.WorkStorage import WorkStorage
-from harvest_works_models.WorkHarvester import WorkHarvester
-
+from src.db.MongoConnection import MongoConnection
+from src.orcid.storage.OrcidStorage import OrcidStorage
+from src.orcid.search.OrcidSearchClient import OrcidSearchClient
+from src.works.harvest.WorkHarvester import WorkHarvester
+from src.works.storage.WorkStorage import WorkStorage
 
 def main():
     load_dotenv()

@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
-from search_models import OrcidSearchClient, OrcidStorage
-from harvest_works_models import WorkHarvester, WorkStorage
-from conn.MongoConnection import MongoConnection
+from src.orcid.search.OrcidSearchClient import OrcidSearchClient
+from src.orcid.storage.OrcidStorage import OrcidStorage
+from src.works.harvest.WorkHarvester import WorkHarvester
+from src.works.storage.WorkStorage import WorkStorage
+from src.db.MongoConnection import MongoConnection
 from dotenv import load_dotenv
 import os
 

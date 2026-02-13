@@ -15,7 +15,7 @@ import time
 import json
 from typing import List, Optional
 from .QueryPartition import QueryPartition
-from .OrcidProfile import OrcidProfile
+from src.orcid.models.OrcidProfile import OrcidProfile
 
 
 class OrcidSearchClient:

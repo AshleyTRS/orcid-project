@@ -13,8 +13,8 @@ from collections import deque
 from typing import Iterable, Set
 from .OrcidSearchClient import OrcidSearchClient
 from .QueryPartition import QueryPartition
-from .PartitionStorage import PartitionStorage
-from .OrcidStorage import OrcidStorage
+from ..storage.PartitionStorage import PartitionStorage
+from ..storage.OrcidStorage import OrcidStorage
 
 
 class DiscoveryEngine:

@@ -1,5 +1,8 @@
-from conn.MongoConnection import MongoConnection
-from search_models import OrcidStorage, PartitionStorage, OrcidSearchClient, DiscoveryEngine
+from src.db.MongoConnection import MongoConnection
+from src.orcid.storage.OrcidStorage import OrcidStorage
+from src.orcid.storage.PartitionStorage import PartitionStorage
+from src.orcid.search.OrcidSearchClient import OrcidSearchClient
+from src.orcid.search.DiscoveryEngine import DiscoveryEngine
 from dotenv import load_dotenv
 import os
 

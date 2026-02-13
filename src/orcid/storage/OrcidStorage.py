@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pymongo.errors import DuplicateKeyError
 from typing import List
-from .OrcidProfile import OrcidProfile
+from ..models.OrcidProfile import OrcidProfile
 
 
 class OrcidStorage:

@@ -6,10 +6,10 @@ Harvests works for discovered ORCID profiles.
 import time
 import re
 from datetime import datetime, timezone
-from .Work import Work
-from .WorkStorage import WorkStorage
-from search_models.OrcidSearchClient import OrcidSearchClient
-from search_models.OrcidStorage import OrcidStorage
+from ..models.Work import Work
+from ..storage.WorkStorage import WorkStorage
+from src.orcid.search.OrcidSearchClient import OrcidSearchClient
+from src.orcid.storage.OrcidStorage import OrcidStorage
 import unicodedata
 
 class WorkHarvester:
@@ -56,13 +56,17 @@ class WorkHarvester:
         inserted = 0
 
         for put_code in put_codes:
-            work_data = self.client.get_work(orcid_id, put_code)
-            work = self.parse_work(orcid_id, put_code, work_data)
+            try:
+                work_data = self.client.get_work(orcid_id, put_code)
+                work = self.parse_work(orcid_id, put_code, work_data)
 
-            if self.work_storage.insert(work.to_dict()):
-                inserted += 1
+                if self.work_storage.insert(work.to_dict()):
+                    inserted += 1
 
-            time.sleep(self.rate_limit_delay)
+                time.sleep(self.rate_limit_delay)
+
+            except Exception as e:
+                print(f"[WARN] {orcid_id} put-code {put_code}: {e}")
 
         print(f"[DONE] {orcid_id} → {inserted} works")
 
@@ -73,9 +77,9 @@ class WorkHarvester:
     def extract_put_codes(self, record: dict) -> list[int]:
         put_codes = []
 
-        works = (record.get("activities-summary") or {}).get("works") or {}
-        for group in (works.get("group") or []):
-            for summary in (group.get("work-summary") or []):
+        works = record.get("activities-summary", {}).get("works", {})
+        for group in works.get("group", []):
+            for summary in group.get("work-summary", []):
                 if "put-code" in summary:
                     put_codes.append(summary["put-code"])
 
@@ -87,7 +91,7 @@ class WorkHarvester:
                 .get("title") or {}
         ).get("value")
 
-        journal = ((data.get("journal-title") or {})).get("value")
+        journal = (data.get("journal-title") or {}).get("value")
 
         year = (
             ((data.get("publication-date") or {})
@@ -97,22 +101,24 @@ class WorkHarvester:
         year = int(year) if year else None
 
         external_ids = []
-        for ext in (data.get("external-ids") or {}).get("external-id", []):
+        ext_container = data.get("external-ids") or {}
+        ext_list = ext_container.get("external-id") or []
+
+        for ext in ext_list:
             external_ids.append({
                 "type": ext.get("external-id-type"),
                 "value": ext.get("external-id-value")
             })
 
         contributors = []
-        for c in (data.get("contributors") or {}).get("contributor", []):
-            credit_name = (
-                (c.get("credit-name") or {})
-                .get("value")
-            )
+        contrib_container = data.get("contributors") or {}
+        contrib_list = contrib_container.get("contributor") or []
 
+        for c in contrib_list:
+            credit_name = (c.get("credit-name") or {}).get("value")
             if not credit_name:
-                continue  # skip unusable contributors
-            
+                continue
+
             normalized = self.normalize_name(credit_name)
             tokens = normalized.split() if normalized else []
 
@@ -121,17 +127,17 @@ class WorkHarvester:
                 .get("path")
             )
 
-            attrs = (c.get("contributor-attributes") or {})
+            attrs = c.get("contributor-attributes") or {}
 
             contributors.append({
                 "credit_name": credit_name,
                 "normalized_name": normalized,
-                "tokens" : tokens,
+                "tokens": tokens,
                 "orcid_id": contributor_orcid,
                 "role": attrs.get("contributor-role"),
                 "sequence": attrs.get("contributor-sequence")
             })
-            
+
         return Work(
             orcid_id=orcid_id,
             put_code=put_code,
