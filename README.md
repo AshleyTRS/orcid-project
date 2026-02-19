@@ -94,3 +94,57 @@ DB_NAME = <your-mongo-db-name>
 ```
 
 The values may be adjusted depending on the execution environment and database configuration.
+
+---
+
+## Execution
+
+The system is implemented entirely in Python and is executed using the Python interpreter. Proper execution depends on correct environment configuration and dependency installation.
+
+Overmore, all executable workflows are located in the `scripts/` directory.
+Scripts must be executed from the project root to ensure correct module resolution.
+
+### Harvest ORCID Profiles
+
+```bash
+python -m scripts.harvest_orcids
+```
+
+This script retrieves ORCID researcher profiles and stores them in the database.
+
+### Harvest Scholarly Works
+
+```bash
+python -m scripts.harvest_works
+```
+
+This script retrieves research contributions or published works associated with previously stored ORCID profiles.
+
+### Reset ORCID Data
+
+```bash
+python -m scripts.reset_orcids
+```
+
+This utility script clears ORCID-related collections from the database to allow clean re-execution of the harvesting workflows.
+
+---
+
+## Project Structure
+
+The project follows a layered structure that separates execution logic from core functionality:
+
+```txt
+src/        Core application logic and domain components
+scripts/    Executable workflows and entry points
+tests/      Automated test scripts
+```
+
+This separation supports modularity, testing, and future extensibility.
+
+---
+
+## Documentation
+
+Detailed documentation describing the system architecture, workflow, and internal components is available in the project Wiki.
+The Wiki provides conceptual explanations intended to complement the source code and facilitate academic evaluation.
