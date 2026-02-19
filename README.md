@@ -148,3 +148,12 @@ This separation supports modularity, testing, and future extensibility.
 
 Detailed documentation describing the system architecture, workflow, and internal components is available in the project Wiki.
 The Wiki provides conceptual explanations intended to complement the source code and facilitate academic evaluation.
+
+---
+
+## Scope and Design Considerations
+
+- The system relies exclusively on the official ORCID API.
+- No web crawling or HTML scraping is performed.
+- Query partitioning is used to control request volume and improve scalability.
+- Data persistence is handled through dedicated storage modules to ensure separation of concerns.
