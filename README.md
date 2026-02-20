@@ -4,7 +4,7 @@
 
 This project implements an API-based system for the retrieval, processing, and storage of researcher information and scholarly publications from the ORCID platform.  
 The system is designed following a modular architecture that separates query management, data retrieval, parsing, and persistence. Its primary objective is to provide a structured and reproducible workflow for collecting ORCID-related data while respecting API constraints and good software engineering practices.
-The project is intended for academic use and uses public API endpoints to ethically collect ORCID related data.
+The project is intended for academic purposes and uses public API endpoints to ethically collect ORCID related data.
 
 ### What is the ORCID platform?
 
@@ -87,8 +87,8 @@ pip install -r requirements.txt
 Create a `.env` file in the project root directory with the following structure:
 
 ```bash
-ORCID_API_TOKEN = <your-access-token>
-MONGO_URI = <your-mongo-db-uri>
+ACCESS_TOKEN = <your-access-token>
+MONGO_CONN = <your-mongo-db-uri>
 DB_PASSWORD = <your-mongo-db-password>
 DB_NAME = <your-mongo-db-name>
 ```
