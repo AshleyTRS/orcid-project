@@ -1,8 +1,8 @@
 """
 Docstring for models.QueryPartition
-Helper class in the search process.
+QueryPartition is a helper class in the search process.
 Since API limits 10,000 results per query (even when there could be more results),
-it is optimal to create partitions of that search query based on the alphabet and family-name
+it is optimal to create partitions of that search query based on the alphabet and family-name.
 """
 
 from dataclasses import dataclass

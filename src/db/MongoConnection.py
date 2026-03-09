@@ -19,6 +19,28 @@ class MongoConnection:
     
     def works(self):
         return self.db.works
+    
+    def queue(self):
+        return self.db.metadata_queue
+    
+    def metadata(self):
+        return self.db.works_metadata
+
+    def get_unique_dois(self):
+        """
+        Returns a generator of unique DOI values found in the works collection.
+        """
+        pipeline = [
+            {"$unwind": "$external_ids"},
+            {"$match": {"external_ids.type": "doi"}},
+            {"$group": {"_id": "$external_ids.value"}},
+            {"$project": {"_id": 0, "doi": "$_id"}}
+        ]
+
+        cursor = self.works().aggregate(pipeline)
+
+        for doc in cursor:
+            yield doc["doi"]
 
     def close(self):
         self.client.close()

@@ -1,10 +1,15 @@
-# ORCID Data Harvesting System
+# Scholarly Data Harvesting and Enrichment System
 
 ## Overview
 
-This project implements an API-based system for the retrieval, processing, and storage of researcher information and scholarly publications from the ORCID platform.  
-The system is designed following a modular architecture that separates query management, data retrieval, parsing, and persistence. Its primary objective is to provide a structured and reproducible workflow for collecting ORCID-related data while respecting API constraints and good software engineering practices.
-The project is intended for academic purposes and uses public API endpoints to ethically collect ORCID related data.
+This project implements a multi-stage API-based system for the retrieval, processing, enrichment, and storage of researcher information and scholarly publications. The system operates in two primary stages:
+
+1. **Data Harvesting**: Retrieves researcher profiles and associated scholarly works from the ORCID platform.
+2. **Metadata Enrichment**: Augments harvested works with comprehensive metadata from the OpenAlex API.
+
+The system is designed following a modular architecture that separates query management, data retrieval, parsing, normalization, and persistence. Its primary objective is to provide a structured and reproducible workflow for collecting and enriching ORCID-related data while respecting API constraints and good software engineering practices.
+
+The project is intended for academic purposes and uses public API endpoints to ethically collect and process scholarly data.
 
 ### What is the ORCID platform?
 
@@ -12,9 +17,9 @@ An ORCID (Open Research and Contributor ID) is a free, unique, 16-digit persiste
 
 ### Motivation
 
-The motivation for this project arises from the difficulty of establishing a clear and reliable association between a specific academic institution and the scholarly output of its researchers. Although ORCID serves as a global registry that aggregates researcher identities and scholarly works worldwide, its comprehensive scope introduces significant overhead when an institution seeks to extract and analyze information relevant only to its own academic community.
+The motivation for this project arises from the difficulty of establishing a clear and reliable association between a specific academic institution and the scholarly output of its researchers. Although ORCID and OpenAlex serve as a global registry that aggregates researcher identities and scholarly works worldwide, its comprehensive scope introduces significant overhead when an institution seeks to extract and analyze information relevant only to its own academic community.
 
-In practice, institutional-level analysis requires the selective retrieval and processing of ORCID data, as the platform is not inherently organized around institutional boundaries. This project addresses that challenge by providing a structured, API-based system that enables individual institutions to independently collect, process, and store data related to their researchers and associated scholarly works.
+In practice, institutional-level analysis requires the selective retrieval and processing of scholarly data, as the platform is not inherently organized around institutional boundaries. This project addresses that challenge by providing a structured, API-based system that enables individual institutions to independently collect, process, and store data related to their researchers and associated scholarly works.
 
 By facilitating institution-focused data harvesting, the system supports localized analysis, reporting, and evaluation, while leveraging the global coverage and standardized identifiers provided by ORCID.
 
@@ -29,7 +34,7 @@ By facilitating institution-focused data harvesting, the system supports localiz
 ### External Libraries
 
 - `requests==2.32.5`  
-  Used for HTTP communication with the ORCID public API.
+  Used for HTTP communication with external APIs (ORCID and OpenAlex).
 - `pymongo==4.16.0`  
   Used for data persistence in MongoDB.
 - `dnspython==2.8.0`  
@@ -87,7 +92,7 @@ pip install -r requirements.txt
 Create a `.env` file in the project root directory with the following structure:
 
 ```bash
-ACCESS_TOKEN = <your-access-token>
+ACCESS_TOKEN = <your-ORCID-API-access-token>
 MONGO_CONN = <your-mongo-db-uri>
 DB_PASSWORD = <your-mongo-db-password>
 DB_NAME = <your-mongo-db-name>
@@ -120,6 +125,21 @@ python -m scripts.harvest_works
 
 This script retrieves research contributions or published works associated with previously stored ORCID profiles.
 
+### Enrich Metadata from OpenAlex
+
+```bash
+python -m scripts.enrich_data
+```
+
+This script enriches harvested scholarly works with comprehensive metadata from the OpenAlex API. It orchestrates a multi-step enrichment pipeline:
+
+1. Extracts unique DOIs from previously harvested works
+2. Queries the OpenAlex API for detailed metadata
+3. Normalizes and processes API responses
+4. Persists enriched metadata to the database
+
+The enrichment pipeline includes robust error handling to ensure continuous processing even when individual DOI lookups fail, and respects OpenAlex API rate limits (~10 requests per second).
+
 ### Reset ORCID Data
 
 ```bash
@@ -132,15 +152,29 @@ This utility script clears ORCID-related collections from the database to allow 
 
 ## Project Structure
 
-The project follows a layered structure that separates execution logic from core functionality:
+The project follows a layered architecture that separates execution logic, domain components, and data processing stages:
 
 ```txt
-src/        Core application logic and domain components
-scripts/    Executable workflows and entry points
-tests/      Automated test scripts
+src/
+  ├── orcid/              ORCID API interaction and harvesting
+  │   ├── search/        Query infrastructure and discovery
+  │   ├── models/        Domain models for researcher profiles
+  │   └── storage/       Persistence layer for ORCID data
+  ├── works/             Scholarly works harvesting
+  │   ├── harvest/       Work retrieval and extraction
+  │   ├── models/        Work domain models
+  │   └── storage/       Persistence for works data
+  ├── data_enrichment/    Metadata enrichment pipeline
+  │   ├── metadata/      Enrichment orchestration and task queuing
+  │   ├── openalex/      OpenAlex API client and normalization
+  │   └── storage/       Persistence for enriched metadata
+  └── db/                Database connectivity and utilities
+
+scripts/                  Executable workflows and entry points
+tests/                    Automated test scripts
 ```
 
-This separation supports modularity, testing, and future extensibility.
+This layered structure supports clear separation of concerns, enabling independent testing, maintenance, and evolution of each stage in the harvesting and enrichment pipeline.
 
 ---
 
@@ -153,7 +187,20 @@ The Wiki provides conceptual explanations intended to complement the source code
 
 ## Scope and Design Considerations
 
-- The system relies exclusively on the official ORCID public API.
+### Data Sources
+
+- The system relies exclusively on official public APIs: ORCID and OpenAlex.
 - No web crawling or HTML scraping is performed.
-- Query partitioning is used to control request volume and improve scalability.
+- All data collection respects institutional rate limits and API usage policies.
+
+### Architecture
+
+- Query partitioning is used to control request volume and improve scalability during ORCID harvesting.
 - Data persistence is handled through dedicated storage modules to ensure separation of concerns.
+- The enrichment pipeline incorporates batch processing and graceful error handling to maximize throughput while maintaining data integrity.
+- DOI normalization is applied consistently across all pipeline stages to ensure reliable matching between harvested works and API-sourced metadata.
+
+### Extensibility
+
+- The modular design allows for future integration of additional metadata sources beyond OpenAlex.
+- Storage and API interfaces are abstracted to facilitate swapping implementations without affecting orchestration logic.
