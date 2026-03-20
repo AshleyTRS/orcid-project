@@ -2,3 +2,21 @@
 __pycache__/
 *.pyc
 .venv/
+venv/
+
+# Database backups
+backups/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+.coverage
