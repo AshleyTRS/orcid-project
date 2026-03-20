@@ -15,6 +15,14 @@ The project is intended for academic purposes and uses public API endpoints to e
 
 An ORCID (Open Research and Contributor ID) is a free, unique, 16-digit persistent digital identifier for research professionals and students that solves the problem of distinguishing reserachers and their works throughout their careers. ORCID prevents confusion caused by name ambuity, creates a portable profile for each researcher that owns one, connects to other research repositories, and ensures authors get proper attribution for published works. The [ORCID](https://orcid.org/) platform permits universities and research institutions stay up to date with their researcher's contributions and publications, reducing the administrative burden and input errors and improving the discoverability of reseachers, employees, and students.
 
+### What is DOI?
+
+A DOI (Digital Object Identifier) is a standardized, persistent alphanumeric string assigned to digital scholarly content such as journal articles, book chapters, and conference papers. It provides a permanent and reliable way to identify and locate academic works on the internet, regardless of changes in their URL or hosting platform.
+
+The DOI system ensures that each publication can be uniquely referenced and accessed through a consistent resolution mechanism, typically via the <https://doi.org/> resolver. This makes DOIs essential for citation, data integration, and interoperability between scholarly systems.
+
+In the context of this project, DOIs serve as the primary key for linking data between the ORCID platform and OpenAlex metadata, enabling accurate enrichment of publications and consolidation of information across multiple sources.
+
 ### Motivation
 
 The motivation for this project arises from the difficulty of establishing a clear and reliable association between a specific academic institution and the scholarly output of its researchers. Although ORCID and OpenAlex serve as a global registry that aggregates researcher identities and scholarly works worldwide, its comprehensive scope introduces significant overhead when an institution seeks to extract and analyze information relevant only to its own academic community.
