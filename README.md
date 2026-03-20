@@ -320,7 +320,7 @@ The schema now includes 12+ strategically placed indexes:
 #### 1. Data Completeness
 
 - **DOI Availability**: Not all works in ORCID have associated DOIs. Works without DOIs cannot be matched to OpenAlex metadata and remain unrich enriched.
-- **Impact**: Approximately 30-40% of works may lack comprehensive metadata enrichment. Statistical analyses should account for this selection bias.
+- **Impact**: Approximately 10% of works may lack comprehensive metadata enrichment. Statistical analyses should account for this selection bias.
 
 #### 2. Temporal Limits
 
@@ -368,13 +368,13 @@ Given these schema modifications and limitations, the following analytical appro
    - Analyze OpenAlex fields (concepts, keywords) for research landscape characterization
    - Limitation: Only works with DO are enriched; non-DOI works will appear as missing values
 
-### Data Mining Considerations
+<!-- ### Data Mining Considerations
 
 For machine learning and classification tasks:
 
 - **Feature Engineering**: The flattened schema supports direct feature extraction without complex preprocessing. Precomputed fields (`author_count`) can serve as numeric features.
 - **Training Data Quality**: The dataset is suitable for supervised learning tasks where the outcome variable is derived from text fields (e.g., topic classification) or numeric fields (e.g., authorship prediction).
 - **Class Imbalance**: Consider stratification by `institution` or `author_count` to avoid biased models.
-- **Feature Completeness**: Implement handling for missing values in enriched fields, as non-DOI works will have null metadata fields.
+- **Feature Completeness**: Implement handling for missing values in enriched fields, as non-DOI works will have null metadata fields. -->
 
 ---
