@@ -2,30 +2,38 @@
 
 Two scripts for creating MongoDB database backups:
 
-## Option 1: `dump_database.py` (Recommended - Uses mongodump)
+---
 
-Uses the standard MongoDB `mongodump` tool for efficient, native backups.
+## Option 1: `dump_database.py`
+
+Uses the standard MongoDB `mongodump` tool for efficient, native backups. This is the recommended script for backups.
 
 ### Prerequisites
 
 Install MongoDB tools:
 
-```bash
-# macOS
-brew install mongodb-community
+Using macOS:
 
+```bash
+brew install mongodb-community
+```
+
+Using Linux:
+
+```bash
 # Linux - Ubuntu/Debian
 sudo apt-get install mongodb-org-tools
-
-# Windows
-# Download from: https://docs.mongodb.com/database-tools/installation/
-# Or use Chocolatey: choco install mongodb-database-tools
 ```
+
+Using Windows:
+
+Download from <https://docs.mongodb.com/database-tools/installation/>
 
 ### Usage
 
+From project root run:
+
 ```bash
-# From project root
 python scripts/dump_database.py
 ```
 
@@ -45,16 +53,13 @@ backups/
 
 ### Advantages
 
-- **Built-in MongoDB tool** - Standard method  
-- **Binary format** - Preserves all data types  
-- **Fast** - Efficient for large databases  
-- **Can restore with mongorestore** - Standard tooling  
+The built-in MongoDB tool is a standard method. All data types are preserved. Because it is a native tool, it is efficient for backing up large databases.
 
 ---
 
-## Option 2: `dump_database_pymongo.py` (Portable - Pure Python)
+## Option 2: `dump_database_pymongo.py`
 
-Uses PyMongo to create JSON backups. No external dependencies needed.
+Uses PyMongo to create JSON backups. No external dependencies needed. This is a portable and pythonic method.
 
 ### Prerequisites
 
@@ -62,8 +67,9 @@ PyMongo is already installed (check requirements.txt).
 
 ### Usage
 
+Run this from project root:
+
 ```bash
-# From project root
 python scripts/dump_database_pymongo.py
 ```
 
@@ -71,7 +77,7 @@ python scripts/dump_database_pymongo.py
 
 Creates timestamped backup in `./backups/` directory:
 
-```
+```bash
 backups/
 └── orcid_backup_pymongo_20260319_143022/
     ├── metadata.json      (collection names, document count)
@@ -83,30 +89,24 @@ backups/
 
 ### Advantages
 
-✓ **No external dependencies** - Pure Python  
-✓ **Human-readable** - JSON format  
-✓ **Easy to inspect** - Open JSON files directly  
-✓ **Portable** - Works anywhere Python runs  
-✓ **Git-friendly** - Can version control in git (if small)  
+There are no external dependencies, format is human readable because it is backed up in JSON format, and it works anywhere Python runs.
 
 ### Disadvantages
 
-✗ **Slower** - JSON serialization takes longer  
-✗ **Larger files** - JSON is more verbose than BSON  
-✗ **Type conversion** - ObjectIds become strings  
-
+This method can be slower for larger databases as JSON serialization takes longer. File sizes are bigger - JSON is more verbose than BSON. Not all data types are preserved. For examples, ObjectIds become strings.
+  
 ---
 
 ## Comparison
 
 | Feature | mongodump | PyMongo |
-|---------|-----------|---------|
-| Speed | ⭐⭐⭐ Fast | ⭐ Slow |
-| File size | ⭐⭐⭐ Small (BSON) | ⭐ Large (JSON) |
+| --------- | ----------- | --------- |
+| Speed | Fast | Slow |
+| File size | Small (BSON) | Large (JSON) |
 | Dependencies | MongoDB tools required | PyMongo only |
-| Human-readable | ⭐ Binary format | ⭐⭐⭐ JSON |
+| Human-readable | Binary format | JSON |
 | Restore | Use mongorestore | Custom script needed |
-| Large databases | ⭐⭐⭐ Recommended | ⭐ Not ideal |
+| Large databases | Recommended | Not ideal |
 
 ---
 
@@ -138,7 +138,7 @@ mongorestore --uri="<MONGO_URI>" --db=<DB_NAME> --collection=works \
 
 ### From PyMongo backup
 
-You would need to write a restoration script. Example:
+It is necessary to write a restoration script. Example:
 
 ```python
 import json
@@ -152,52 +152,4 @@ with open('backups/.../works.json') as f:
 client = MongoClient("<MONGO_URI>")
 db = client["<DB_NAME>"]
 db.works.insert_many(documents)
-```
-
----
-
-## Scheduling Regular Backups
-
-### Using cron (Linux/macOS)
-
-```bash
-# Backup daily at 2 AM
-0 2 * * * cd /path/to/orcid-project && python scripts/dump_database.py
-```
-
-### Using Task Scheduler (Windows)
-
-Create a batch file:
-
-```batch
-@echo off
-cd C:\Users\ashle\OneDrive\Desktop\tesis\orcid-project
-python scripts\dump_database.py
-```
-
-Then schedule in Task Scheduler to run at desired times.
-
----
-
-## Tips
-
-- **Regular backups** - Run daily or before major migrations
-- **Store backups** - Keep copies in cloud storage (AWS S3, Google Cloud, etc.)
-- **Monitor size** - Large databases produce large backups
-- **Test restoration** - Periodically test restoring from backups
-- **Keep old backups** - Implement retention policy (e.g., keep last 30 backups)
-
----
-
-## Example: Backup Before Migration
-
-```bash
-# Create backup before running migrations
-python scripts/dump_database.py
-
-# Run migrations
-python -m src.data_migration.run_all
-
-# If something goes wrong, restore from backup
-mongorestore --uri="<PROD_URI>" --db=orcid ./backups/orcid_backup_<timestamp>/orcid
 ```
