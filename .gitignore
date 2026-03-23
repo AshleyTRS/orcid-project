@@ -19,4 +19,21 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Testing and Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+
+# Reports and Analytics Output
+reports/
+
+# Jupyter Notebooks (if any)
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
 .coverage

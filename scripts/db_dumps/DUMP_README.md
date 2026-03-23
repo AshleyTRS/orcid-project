@@ -70,7 +70,7 @@ PyMongo is already installed (check requirements.txt).
 Run this from project root:
 
 ```bash
-python scripts/dump_database_pymongo.py
+python scripts/db_dumps/dump_database_pymongo.py
 ```
 
 ### Output
