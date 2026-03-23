@@ -182,6 +182,38 @@ python -m scripts.reset_orcids
 
 This utility script clears ORCID-related collections from the database to allow clean re-execution of the harvesting workflows.
 
+### Generate Analytics Reports
+
+```bash
+python scripts/analyze_publications.py
+```
+
+This script generates comprehensive publication analytics reports including:
+
+- Publications per year
+- Publications per institution per year
+- Publications per type
+- Top authors by publication count
+- Author contributor analysis
+- Publication metrics summary
+
+Reports are displayed in the console and exported as JSON files in the `reports/` directory.
+
+### Visualize Co-authorship Networks
+
+```bash
+python scripts/coauthorship_api.py
+```
+
+This script starts a Flask web server that provides an interactive co-authorship network visualization. The system includes:
+
+- **Backend API**: RESTful endpoint (`/api/coauthorship`) that accepts year range parameters and returns network data
+- **Frontend Visualization**: D3.js force-directed graph showing author collaborations
+- **Interactive Controls**: Year range sliders for dynamic filtering
+- **Network Metrics**: Node sizes represent publication counts, edge thickness represents collaboration strength
+
+Access the visualization at `http://localhost:5000` after starting the server. The system supports datasets with approximately 35,000 works and 5,000 authors with near real-time updates.
+
 ---
 
 ## Project Structure
@@ -212,12 +244,19 @@ src/
   │   ├── drop_unused_indexes.py  Remove obsolete indexes
   │   └── run_all.py              Orchestrate all migrations sequentially
   ├── data_analysis/      Statistical analysis and reporting utilities
+  ├── analytics/          MongoDB aggregation pipelines for publication analytics
+  │   ├── aggregations.py         Core aggregation functions
+  │   └── README.md               Analytics module documentation
+  ├── coauthorship/       Co-authorship network analysis and visualization
+  │   └── coauthorship_aggregator.py  Network computation logic
   └── db/                 Database connectivity and utilities
 
 scripts/                  Executable workflows and entry points
   ├── harvest_orcids.py             Retrieve ORCID researcher profiles
   ├── harvest_works.py              Retrieve scholarly works from profiles
   ├── enrich_data_openalex.py       Enrich metadata from OpenAlex API
+  ├── analyze_publications.py       Generate publication analytics reports
+  ├── coauthorship_api.py           Co-authorship network visualization server
   ├── dump_database_pymongo.py      Create timestamped database backups
   └── reset_orcids.py               Clear ORCID collections for re-execution
 

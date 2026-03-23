@@ -36,4 +36,17 @@ reports/
 *.temp
 *~
 
+# Build artifacts
+dist/
+build/
+*.egg-info/
+pip-wheel-metadata/
+
+# Flask local configuration
+instance/
+
+# MyPy
+.mypy_cache/
+
+# Pycache and coverage
 .coverage

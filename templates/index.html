@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Co-authorship Network Visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+            gap: 20px;
+        }
+
+        .year-range {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .year-display {
+            font-weight: bold;
+            min-width: 80px;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="range"] {
+            width: 200px;
+        }
+
+        .stats {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #666;
+        }
+
+        svg {
+            display: block;
+            margin: 0 auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .node {
+            cursor: pointer;
+        }
+
+        .node:hover {
+            stroke: #000;
+            stroke-width: 2px;
+        }
+
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+        }
+
+        .tooltip {
+            position: absolute;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Co-authorship Network Visualization</h1>
+
+        <div class="controls">
+            <div class="year-range">
+                <span>Year Range:</span>
+                <div class="slider-container">
+                    <div id="year-slider"></div>
+                    <div class="year-display">
+                        <span id="startYearDisplay">2020</span> - <span id="endYearDisplay">2025</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats" id="stats">
+            Loading data...
+        </div>
+
+        <svg id="network-svg" width="1000" height="600"></svg>
+
+        <div class="tooltip" id="tooltip"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const width = 1000;
+        const height = 600;
+        const svg = d3.select("#network-svg");
+        const tooltip = d3.select("#tooltip");
+
+        // Scales for node size and edge thickness
+        const nodeSizeScale = d3.scaleSqrt().range([5, 20]);
+        const edgeWidthScale = d3.scaleLinear().range([1, 5]);
+
+        // Force simulation
+        const simulation = d3.forceSimulation()
+            .force("link", d3.forceLink().id(d => d.id).distance(50))
+            .force("charge", d3.forceManyBody().strength(-100))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("x", d3.forceX(width / 2).strength(0.1))
+            .force("y", d3.forceY(height / 2).strength(0.1));
+
+        let currentData = { nodes: [], edges: [] };
+
+        // Initialize slider
+        const yearSlider = document.getElementById('year-slider');
+        const startYearDisplay = document.getElementById('startYearDisplay');
+        const endYearDisplay = document.getElementById('endYearDisplay');
+
+        noUiSlider.create(yearSlider, {
+            start: [2020, 2025],
+            connect: true,
+            range: {
+                'min': 1900,
+                'max': 2030
+            },
+            step: 1,
+            format: {
+                to: value => Math.round(value),
+                from: value => Math.round(value)
+            }
+        });
+
+        yearSlider.noUiSlider.on('update', function (values, handle) {
+            const startYear = parseInt(values[0]);
+            const endYear = parseInt(values[1]);
+            startYearDisplay.textContent = startYear;
+            endYearDisplay.textContent = endYear;
+            updateVisualization(startYear, endYear);
+        });
+
+        // Load initial data
+        updateVisualization(2020, 2025);
+
+        function updateVisualization(startYear, endYear) {
+            d3.select("#stats").text("Loading data...");
+
+            // Fetch new data
+            d3.json(`/api/coauthorship?startYear=${startYear}&endYear=${endYear}`)
+                .then(data => {
+                    currentData = data;
+                    updateGraph(data);
+                    updateStats(data);
+                })
+                .catch(error => {
+                    console.error("Error loading data:", error);
+                    d3.select("#stats").text("Error loading data. Please try again.");
+                });
+        }
+
+        function updateStats(data) {
+            const nodeCount = data.nodes.length;
+            const edgeCount = data.edges.length;
+            const totalPublications = d3.sum(data.nodes, d => d.publications);
+            const avgPublications = (totalPublications / nodeCount).toFixed(1);
+
+            // Count isolated nodes (solo authors)
+            const connectedAuthorIds = new Set();
+            data.edges.forEach(edge => {
+                connectedAuthorIds.add(edge.source);
+                connectedAuthorIds.add(edge.target);
+            });
+            const soloAuthors = nodeCount - connectedAuthorIds.size;
+            const collaboratingAuthors = connectedAuthorIds.size;
+
+            d3.select("#stats").html(`
+                <strong>${nodeCount}</strong> authors 
+                (<strong>${collaboratingAuthors}</strong> collaborating, <strong>${soloAuthors}</strong> solo),
+                <strong>${edgeCount}</strong> collaborations,
+                <strong>${totalPublications}</strong> total publications,
+                <strong>${avgPublications}</strong> average publications per author
+            `);
+        }
+
+        function updateGraph(data) {
+            // Update scales
+            const maxPublications = d3.max(data.nodes, d => d.publications) || 1;
+            const maxWeight = d3.max(data.edges, d => d.weight) || 1;
+
+            nodeSizeScale.domain([1, maxPublications]);
+            edgeWidthScale.domain([1, maxWeight]);
+
+            // Update links
+            const link = svg.selectAll(".link")
+                .data(data.edges, d => `${d.source}-${d.target}`)
+                .join(
+                    enter => enter.append("line")
+                        .attr("class", "link")
+                        .style("stroke-width", d => edgeWidthScale(d.weight))
+                        .style("stroke-opacity", d => Math.min(0.8, edgeWidthScale(d.weight) / 5)),
+                    update => update
+                        .transition()
+                        .duration(500)
+                        .style("stroke-width", d => edgeWidthScale(d.weight))
+                        .style("stroke-opacity", d => Math.min(0.8, edgeWidthScale(d.weight) / 5)),
+                    exit => exit.remove()
+                );
+
+            // Update nodes
+            const node = svg.selectAll(".node")
+                .data(data.nodes, d => d.id)
+                .join(
+                    enter => enter.append("circle")
+                        .attr("class", "node")
+                        .attr("r", d => nodeSizeScale(d.publications))
+                        .style("fill", "#69b3a2")
+                        .call(d3.drag()
+                            .on("start", dragstarted)
+                            .on("drag", dragged)
+                            .on("end", dragended))
+                        .on("mouseover", showTooltip)
+                        .on("mouseout", hideTooltip),
+                    update => update
+                        .transition()
+                        .duration(500)
+                        .attr("r", d => nodeSizeScale(d.publications)),
+                    exit => exit.remove()
+                );
+
+            // Update simulation
+            simulation
+                .nodes(data.nodes)
+                .on("tick", () => {
+                    link
+                        .attr("x1", d => d.source.x)
+                        .attr("y1", d => d.source.y)
+                        .attr("x2", d => d.target.x)
+                        .attr("y2", d => d.target.y);
+
+                    node
+                        .attr("cx", d => d.x)
+                        .attr("cy", d => d.y);
+                });
+
+            simulation.force("link").links(data.edges);
+            simulation.alpha(1).restart();
+        }
+
+        function showTooltip(event, d) {
+            tooltip
+                .style("opacity", 1)
+                .html(`<strong>ORCID:</strong> ${d.id}<br><strong>Publications:</strong> ${d.publications}`)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        }
+
+        function hideTooltip() {
+            tooltip.style("opacity", 0);
+        }
+
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+    </script>
+</body>
+
+</html>
