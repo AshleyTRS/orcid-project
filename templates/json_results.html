@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Co-authorship JSON Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f7f7f7;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, .1);
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        label {
+            font-weight: 600;
+        }
+
+        input {
+            width: 100px;
+            padding: 6px;
+        }
+
+        button {
+            padding: 8px 14px;
+            font-size: 14px;
+        }
+
+        pre {
+            background: #121212;
+            color: #e5e5e5;
+            padding: 16px;
+            overflow: auto;
+            max-height: 600px;
+            border-radius: 6px;
+        }
+
+        .status {
+            margin-bottom: 12px;
+            font-size: 0.95rem;
+        }
+
+        a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Co-authorship JSON API Viewer</h1>
+        <p>Use the query parameters to fetch raw JSON from <code>/api/coauthorship</code>.</p>
+        <div class="controls">
+            <label>start year <input id="startYear" type="number" value="2020" min="1900" max="2100"></label>
+            <label>end year <input id="endYear" type="number" value="2026" min="1900" max="2100"></label>
+            <button id="fetchBtn">Fetch JSON</button>
+            <a href="/">Back to visualization</a>
+        </div>
+
+        <div class="status" id="status">Ready</div>
+        <pre id="jsonOutput">{} </pre>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const outputEl = document.getElementById('jsonOutput');
+        const startYearEl = document.getElementById('startYear');
+        const endYearEl = document.getElementById('endYear');
+        const fetchBtn = document.getElementById('fetchBtn');
+
+        function fetchJson() {
+            const start = startYearEl.value;
+            const end = endYearEl.value;
+            const url = `/api/coauthorship?startYear=${encodeURIComponent(start)}&endYear=${encodeURIComponent(end)}`;
+            statusEl.textContent = `Fetching ${url} ...`;
+            fetch(url)
+                .then(resp => resp.json())
+                .then(data => {
+                    outputEl.textContent = JSON.stringify(data, null, 2);
+                    statusEl.textContent = `Fetched ${Object.keys(data).length} top-level keys at ${new Date().toLocaleTimeString()}`;
+                })
+                .catch(err => {
+                    outputEl.textContent = JSON.stringify({ error: err.message || err }, null, 2);
+                    statusEl.textContent = 'Error fetching data';
+                });
+        }
+
+        fetchBtn.addEventListener('click', fetchJson);
+
+        fetchJson();
+    </script>
+</body>
+
+</html>
