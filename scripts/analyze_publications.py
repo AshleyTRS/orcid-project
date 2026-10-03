@@ -1,5 +1,5 @@
 """
-Example script: Generate publication analytics and statistics reports.
+Generate publication analytics and statistics reports.
 
 Demonstrates how to use the analytics module to compute various publication
 metrics and generate reports suitable for visualization or institutional reporting.

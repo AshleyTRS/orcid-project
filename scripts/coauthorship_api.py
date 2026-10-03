@@ -209,6 +209,14 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/network')
+def network_view():
+    """
+    Serve the co-authorship network visualization page.
+    """
+    return render_template('network.html')
+
+
 @app.route('/json_view')
 def json_view():
     """
