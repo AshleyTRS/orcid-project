@@ -7,9 +7,10 @@ It correctly handles the fact that publications may appear multiple times in the
 """
 
 from collections import Counter, defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 import logging
 
+from src.analytics.aggregations import build_works_match
 from src.coauthorship.models import Publication, Node, Edge, NetworkData
 
 logging.basicConfig(level=logging.INFO)
@@ -154,26 +155,39 @@ class MongoDBNetworkExtractor:
         """
         self.db = db
     
-    def extract_network(self, start_year: int, end_year: int) -> NetworkData:
+    def extract_network(
+        self,
+        start_year: int,
+        end_year: int,
+        types: Optional[List[str]] = None,
+        subjects: Optional[List[str]] = None,
+        keywords: Optional[List[str]] = None,
+        institutes: Optional[List[str]] = None
+    ) -> NetworkData:
         """
-        Extract co-authorship network for a given year range.
-        
+        Extract co-authorship network for a given year range and optional filters.
+
         Args:
             start_year: Starting year for filtering publications
             end_year: Ending year for filtering publications
-        
+            types: Optional work types to include (any of)
+            subjects: Optional OpenAlex topic fields to include (any of)
+            keywords: Optional keywords to include (any of)
+            institutes: Optional institute names to include (any of)
+
         Returns:
             NetworkData object containing the complete network
         """
-        logger.info(f"Extracting network for years {start_year}-{end_year}")
-        
+        logger.info(f"Extracting network for years {start_year}-{end_year} "
+                    f"(types={types}, subjects={subjects}, keywords={keywords}, institutes={institutes})")
+
         # Query MongoDB for relevant documents
         pipeline = [
             {
-                "$match": {
-                    "publication_year": {"$gte": start_year, "$lte": end_year},
-                    "doi": {"$exists": True, "$ne": None}
-                }
+                "$match": build_works_match(
+                    start_year=start_year, end_year=end_year, types=types,
+                    subjects=subjects, keywords=keywords, institutes=institutes
+                )
             },
             {
                 "$project": {
@@ -181,7 +195,8 @@ class MongoDBNetworkExtractor:
                     "doi": 1,
                     "orcid_id": 1,
                     "publication_year": 1,
-                    "contributors": 1
+                    # Only contributor ORCID iDs are used; skipping names/tokens cuts transfer ~3x
+                    "contributors.orcid_id": 1
                 }
             }
         ]

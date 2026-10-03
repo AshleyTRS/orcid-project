@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Author - UAEH Researchers Network</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="/static/styles/main.css">
+</head>
+
+<body>
+    {% include '_header.html' %}
+
+    <main class="container" id="authorPage" data-orcid="{{ orcid_id }}">
+        <a href="/" class="back-link" id="backLink">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round" aria-hidden="true">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Back to search
+        </a>
+
+        <div class="page-header">
+            <div class="eyebrow">
+                <span>Author</span>
+                <a class="badge" href="https://orcid.org/{{ orcid_id }}" target="_blank" rel="noopener noreferrer"
+                    aria-label="ORCID {{ orcid_id }} (opens orcid.org in a new tab)">ORCID {{ orcid_id }}</a>
+            </div>
+            <h1 class="author-name" id="authorName"><span class="skeleton" style="width: 320px; height: 1em"></span></h1>
+        </div>
+
+        <div class="author-layout" id="authorLayout">
+            <section class="card author-facts" aria-labelledby="factsTitle">
+                <h2 class="visually-hidden" id="factsTitle">Profile</h2>
+                <dl class="fact-list" id="factList" aria-busy="true">
+                    <dt>Names</dt>
+                    <dd><span class="skeleton" style="width: 60%"></span></dd>
+                    <dt>Affiliations</dt>
+                    <dd><span class="skeleton" style="width: 85%"></span></dd>
+                </dl>
+            </section>
+
+            <aside class="author-aside" aria-label="Author statistics">
+                <div class="kpi-grid" id="kpiGrid" aria-busy="true">
+                    <div class="kpi"><div class="kpi-label">Works</div><div class="kpi-value"><span class="skeleton" style="width: 50%"></span></div></div>
+                    <div class="kpi"><div class="kpi-label">Open access</div><div class="kpi-value"><span class="skeleton" style="width: 50%"></span></div></div>
+                    <div class="kpi"><div class="kpi-label">Co-authors</div><div class="kpi-value"><span class="skeleton" style="width: 50%"></span></div></div>
+                    <div class="kpi"><div class="kpi-label">Active</div><div class="kpi-value"><span class="skeleton" style="width: 50%"></span></div></div>
+                </div>
+
+                <section class="card" aria-labelledby="yearTitle">
+                    <div class="card-header">
+                        <h2 class="card-title" id="yearTitle">Works per year</h2>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="perYearChart" role="img" aria-describedby="yearSummary"></canvas>
+                    </div>
+                    <p class="chart-summary" id="yearSummary"></p>
+                </section>
+
+                <section class="card" aria-labelledby="topicsTitle">
+                    <div class="card-header">
+                        <h2 class="card-title" id="topicsTitle">Topics</h2>
+                    </div>
+                    <ul class="stat-list" id="topicList"></ul>
+                </section>
+
+                <section class="card" aria-labelledby="typesTitle">
+                    <div class="card-header">
+                        <h2 class="card-title" id="typesTitle">Publication types</h2>
+                    </div>
+                    <ul class="stat-list" id="typeList"></ul>
+                </section>
+            </aside>
+
+            <section class="card author-works" aria-labelledby="worksTitle">
+                <div class="card-header">
+                    <h2 class="card-title" id="worksTitle">Works <span class="status-text" id="worksCount"></span></h2>
+                    <div class="works-toolbar">
+                        <label class="check-inline">
+                            <input type="checkbox" id="oaOnly">
+                            Open access only
+                        </label>
+                        <label class="visually-hidden" for="sortSelect">Sort works</label>
+                        <select class="select" id="sortSelect">
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="title">Title A–Z</option>
+                        </select>
+                    </div>
+                </div>
+
+                <ul class="work-list" id="workList" aria-live="polite" aria-busy="true"></ul>
+
+                <div class="works-footer">
+                    <div class="pagination-info">
+                        Page <span class="pagination-page-num" id="currentPage">1</span>
+                        of <span class="pagination-total-pages" id="totalPages">1</span>
+                    </div>
+                    <div class="pagination-buttons">
+                        <button type="button" class="pagination-btn pagination-prev-btn" id="prevBtn">Previous</button>
+                        <button type="button" class="pagination-btn pagination-next-btn" id="nextBtn">Next</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        const ORCID_ID = document.getElementById('authorPage').dataset.orcid;
+        const PAGE_SIZE = 20;
+        const MAX_LISTED_AUTHORS = 6;
+        const MAX_VISIBLE_AFFILIATIONS = 5;
+        const SORTS = ['newest', 'oldest', 'title'];
+
+        const svgIcon = paths => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+        const ICONS = {
+            pdf: svgIcon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>'),
+            external: svgIcon('<path d="M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>'),
+            search: svgIcon('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+            alert: svgIcon('<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>')
+        };
+
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.color = '#475569';
+
+        const el = id => document.getElementById(id);
+        const workList = el('workList');
+        const state = readStateFromUrl();
+        let latestWorksRequest = 0;
+        let perYearChart = null;
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function formatType(type) {
+            if (!type) return '';
+            const text = type.replace(/[-_]/g, ' ');
+            return text.charAt(0).toUpperCase() + text.slice(1);
+        }
+
+        function emptyState(icon, html) {
+            return `<div class="empty-state"><div class="empty-state-icon">${ICONS[icon]}</div><div class="empty-state-text">${html}</div></div>`;
+        }
+
+        // ---- URL state: ?page=2&sort=oldest&oa=1 (shareable, works with Back/Forward)
+
+        function readStateFromUrl() {
+            const params = new URLSearchParams(location.search);
+            return {
+                page: Math.max(1, parseInt(params.get('page'), 10) || 1),
+                sort: SORTS.includes(params.get('sort')) ? params.get('sort') : 'newest',
+                oa: params.get('oa') === '1'
+            };
+        }
+
+        function writeStateToUrl() {
+            const params = new URLSearchParams();
+            if (state.page > 1) params.set('page', state.page);
+            if (state.sort !== 'newest') params.set('sort', state.sort);
+            if (state.oa) params.set('oa', '1');
+            const url = location.pathname + (params.toString() ? `?${params}` : '');
+            history.pushState(null, '', url);
+        }
+
+        window.addEventListener('popstate', () => {
+            Object.assign(state, readStateFromUrl());
+            syncControls();
+            loadWorks();
+        });
+
+        function syncControls() {
+            el('sortSelect').value = state.sort;
+            el('oaOnly').checked = state.oa;
+        }
+
+        // ---- Back link: return to the search results (with their state) when we came from there
+
+        el('backLink').addEventListener('click', (e) => {
+            try {
+                const ref = new URL(document.referrer);
+                if (ref.origin === location.origin && (ref.pathname === '/' || ref.pathname === '/index')) {
+                    e.preventDefault();
+                    history.back();
+                }
+            } catch { /* no referrer: follow the link */ }
+        });
+
+        // ---- Profile
+
+        async function loadProfile() {
+            try {
+                const response = await fetch(`/api/authors/${encodeURIComponent(ORCID_ID)}`);
+                const data = await response.json().catch(() => ({}));
+                if (response.status === 404) {
+                    showNotFound();
+                    return false;
+                }
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                renderProfile(data);
+                return true;
+            } catch (error) {
+                console.error('Error loading author:', error);
+                el('authorName').textContent = 'Author';
+                el('factList').innerHTML = `<dt>Error</dt><dd>Unable to load this author. Please reload the page.</dd>`;
+                el('factList').setAttribute('aria-busy', 'false');
+                return true; // the works list can still load independently
+            }
+        }
+
+        function showNotFound() {
+            document.title = 'Author not found - UAEH Researchers Network';
+            el('authorName').textContent = 'Author not found';
+            el('authorLayout').innerHTML = `<div class="card">${emptyState('search',
+                `No researcher with ORCID iD ${escapeHtml(ORCID_ID)} is in this dataset.<br><a href="/">Search for researchers</a>`)}</div>`;
+        }
+
+        function renderProfile(p) {
+            document.title = `${p.name} - UAEH Researchers Network`;
+            el('authorName').textContent = p.name;
+
+            const facts = [];
+            if (p.observed_names.length) {
+                facts.push(['Also published as', inlineList(p.observed_names)]);
+            }
+            facts.push(['Affiliations', p.institutions.length
+                ? collapsibleList(p.institutions, MAX_VISIBLE_AFFILIATIONS)
+                : '<span>None listed in ORCID</span>']);
+            facts.push(['ORCID iD', `<a href="https://orcid.org/${escapeHtml(p.orcid_id)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.orcid_id)}<span class="visually-hidden"> (opens in a new tab)</span></a>`]);
+            el('factList').innerHTML = facts.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join('');
+            el('factList').setAttribute('aria-busy', 'false');
+            el('factList').querySelectorAll('[data-expand]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const expanded = btn.getAttribute('aria-expanded') === 'true';
+                    btn.setAttribute('aria-expanded', String(!expanded));
+                    btn.previousElementSibling.querySelectorAll('[data-extra]').forEach(li => { li.hidden = expanded; });
+                    btn.textContent = expanded ? btn.dataset.moreLabel : 'Show less';
+                });
+            });
+
+            const s = p.stats;
+            const oaShare = s.works ? Math.round((100 * s.open_access) / s.works) : 0;
+            const years = s.first_year ? (s.first_year === s.last_year ? `${s.first_year}` : `${s.first_year}–${s.last_year}`) : '—';
+            const kpis = [
+                ['Works', s.works.toLocaleString(), p.orcid_works_count != null ? `${p.orcid_works_count.toLocaleString()} ORCID records` : 'unique works'],
+                ['Open access', s.open_access.toLocaleString(), `${oaShare}% of works`],
+                ['Co-authors', s.coauthors.toLocaleString(), 'with an ORCID iD'],
+                ['Active', years, s.first_year ? `${s.last_year - s.first_year + 1} years` : '']
+            ];
+            el('kpiGrid').innerHTML = kpis.map(([label, value, note]) => `
+                <div class="kpi">
+                    <div class="kpi-label">${label}</div>
+                    <div class="kpi-value">${escapeHtml(value)}</div>
+                    <div class="kpi-note">${escapeHtml(note)}</div>
+                </div>`).join('');
+            el('kpiGrid').setAttribute('aria-busy', 'false');
+
+            renderPerYear(p.per_year);
+            renderBreakdown(el('topicList'), p.topics, value => value, 'No topics recorded.');
+            renderBreakdown(el('typeList'), p.types, formatType, 'No types recorded.');
+        }
+
+        function inlineList(values) {
+            return `<ul class="inline-list">${values.map(v => `<li>${escapeHtml(v)}</li>`).join('')}</ul>`;
+        }
+
+        function collapsibleList(values, visible) {
+            const items = values.map((v, i) => `<li${i >= visible ? ' data-extra hidden' : ''}>${escapeHtml(v)}</li>`).join('');
+            const extra = values.length - visible;
+            const more = extra > 0 ? `<button type="button" class="link-btn" data-expand aria-expanded="false" data-more-label="+${extra} more">+${extra} more</button>` : '';
+            return `<ul class="inline-list">${items}</ul>${more}`;
+        }
+
+        function renderPerYear(series) {
+            const summary = el('yearSummary');
+            if (!series.length) {
+                el('perYearChart').parentElement.innerHTML = emptyState('search', 'No publication years recorded.');
+                return;
+            }
+            // Include zero years between the first and last year so gaps are visible
+            const counts = new Map(series.map(d => [d.year, d.count]));
+            const first = series[0].year, last = series[series.length - 1].year;
+            const labels = [], values = [];
+            for (let y = first; y <= last; y++) {
+                labels.push(y);
+                values.push(counts.get(y) || 0);
+            }
+            const peak = series.reduce((a, b) => (b.count > a.count ? b : a));
+            summary.textContent = `Most works in ${peak.year} (${peak.count}). ` +
+                `${series.reduce((n, d) => n + d.count, 0)} dated works between ${first} and ${last}.`;
+
+            perYearChart?.destroy();
+            perYearChart = new Chart(el('perYearChart'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Works', data: values, backgroundColor: '#1e40af', borderRadius: 3 }] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#e2e8f0' } },
+                        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 8 } }
+                    }
+                }
+            });
+        }
+
+        function renderBreakdown(list, items, label, emptyText) {
+            if (!items.length) {
+                list.innerHTML = `<li class="stat-item"><span class="stat-label">${emptyText}</span></li>`;
+                return;
+            }
+            const max = items[0].count;
+            list.innerHTML = items.map(item => `
+                <li class="stat-item">
+                    <div style="flex: 1; min-width: 0;">
+                        <div class="stat-label">${escapeHtml(label(item.value))}</div>
+                        <div class="stat-bar"><div class="stat-bar-fill" style="width: ${(100 * item.count) / max}%"></div></div>
+                    </div>
+                    <div class="stat-value">${item.count.toLocaleString()}</div>
+                </li>`).join('');
+        }
+
+        // ---- Works
+
+        async function loadWorks() {
+            const requestId = ++latestWorksRequest;
+            workList.setAttribute('aria-busy', 'true');
+            el('prevBtn').disabled = el('nextBtn').disabled = true;
+            if (!workList.children.length) {
+                workList.innerHTML = Array.from({ length: 4 }, () => `
+                    <li class="work-item"><div class="work-main">
+                        <span class="skeleton" style="width: 80%; height: 1.1em"></span>
+                        <span class="skeleton" style="width: 45%; margin-top: 8px"></span>
+                    </div></li>`).join('');
+            }
+
+            const params = new URLSearchParams({ page: state.page, limit: PAGE_SIZE, sort: state.sort });
+            if (state.oa) params.set('oa', '1');
+
+            try {
+                const response = await fetch(`/api/authors/${encodeURIComponent(ORCID_ID)}/works?${params}`);
+                const data = await response.json().catch(() => ({}));
+                if (requestId !== latestWorksRequest) return;
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+
+                const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+                if (state.page > totalPages) {
+                    // e.g. a shared link to a page that no longer exists
+                    state.page = totalPages;
+                    history.replaceState(null, '', location.pathname);
+                    return loadWorks();
+                }
+                el('worksCount').textContent = `· ${data.total.toLocaleString()}${state.oa ? ' open access' : ''}`;
+                el('currentPage').textContent = state.page;
+                el('totalPages').textContent = totalPages;
+                el('prevBtn').disabled = state.page <= 1;
+                el('nextBtn').disabled = !data.has_next;
+
+                workList.innerHTML = data.data.length
+                    ? data.data.map(renderWork).join('')
+                    : `<li>${emptyState('search', state.oa ? 'No open-access works for this author.' : 'No works found for this author.')}</li>`;
+            } catch (error) {
+                if (requestId !== latestWorksRequest) return;
+                console.error('Error loading works:', error);
+                workList.innerHTML = `<li>${emptyState('alert', 'Unable to load works. Please try again.')}</li>`;
+            } finally {
+                if (requestId === latestWorksRequest) workList.setAttribute('aria-busy', 'false');
+            }
+        }
+
+        function renderWork(work) {
+            const title = escapeHtml(work.title || 'Untitled work');
+            const titleHtml = work.doi
+                ? `<a href="https://doi.org/${encodeURI(work.doi)}" target="_blank" rel="noopener noreferrer">${title}<span class="visually-hidden"> (opens in a new tab)</span></a>`
+                : title;
+            const meta = [work.publication_year, formatType(work.type)].filter(Boolean).map(escapeHtml);
+            if (work.journal_title) meta.push(`<em>${escapeHtml(work.journal_title)}</em>`);
+
+            const names = work.contributors;
+            let authors = names.slice(0, MAX_LISTED_AUTHORS).join(', ');
+            if (names.length > MAX_LISTED_AUTHORS) authors += ` +${names.length - MAX_LISTED_AUTHORS} more`;
+
+            // Only direct PDF/download links get a button; open-access landing pages
+            // are still reachable through the title's DOI link.
+            let action = '';
+            if (work.oa_url && work.oa_is_pdf) {
+                action = `
+                    <a class="btn btn-secondary btn-sm work-oa-btn" href="${escapeHtml(work.oa_url)}" target="_blank" rel="noopener noreferrer"
+                       aria-label="PDF: ${title} (opens in a new tab)">
+                        ${ICONS.pdf}PDF${ICONS.external}
+                    </a>`;
+            }
+
+            return `
+                <li class="work-item">
+                    <div class="work-main">
+                        <h3 class="work-title">${titleHtml}</h3>
+                        ${meta.length ? `<div class="work-meta">${meta.join(' · ')}</div>` : ''}
+                        ${authors ? `<div class="work-authors">${escapeHtml(authors)}</div>` : ''}
+                    </div>
+                    ${action}
+                </li>`;
+        }
+
+        function changeWorks(update) {
+            Object.assign(state, update);
+            writeStateToUrl();
+            loadWorks();
+        }
+
+        el('sortSelect').addEventListener('change', e => changeWorks({ sort: e.target.value, page: 1 }));
+        el('oaOnly').addEventListener('change', e => changeWorks({ oa: e.target.checked, page: 1 }));
+        el('prevBtn').addEventListener('click', () => {
+            changeWorks({ page: state.page - 1 });
+            el('worksTitle').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
+        el('nextBtn').addEventListener('click', () => {
+            changeWorks({ page: state.page + 1 });
+            el('worksTitle').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
+
+        // ---- Start: profile and first page of works load in parallel
+        syncControls();
+        loadProfile().then(found => { if (!found) latestWorksRequest++; });
+        loadWorks();
+    </script>
+</body>
+
+</html>
