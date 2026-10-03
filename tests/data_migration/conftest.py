@@ -8,12 +8,12 @@ from unittest.mock import Mock, MagicMock
 from pymongo.errors import DuplicateKeyError
 
 
-@pytest.fixture
-def mock_collection():
+def make_mock_collection():
     """
-    Create a mock MongoDB collection for testing.
+    Create an in-memory mock of a MongoDB collection.
     
     Returns a MagicMock that simulates basic MongoDB collection operations.
+    Each call returns an independent collection.
     """
     collection = MagicMock()
     
@@ -164,7 +164,34 @@ def mock_collection():
         """Mock drop_index operation."""
         if index_name in collection._indexes:
             del collection._indexes[index_name]
-    
+
+    def set_path(document, path, value):
+        """Assign a value at a dotted path such as 'contributors.0.orcid_id'."""
+        parts = path.split(".")
+        target = document
+        for part in parts[:-1]:
+            target = target[int(part)] if isinstance(target, list) else target.setdefault(part, {})
+        last = parts[-1]
+        if isinstance(target, list):
+            target[int(last)] = value
+        else:
+            target[last] = value
+
+    def bulk_write_side_effect(operations, ordered=True):
+        """Mock bulk_write for UpdateOne operations with $set (dotted paths supported)."""
+        modified = 0
+        for operation in operations:
+            matches = find_side_effect(operation._filter)
+            if not matches:
+                continue
+            document = collection._documents[matches[0]["_id"]]
+            for path, value in operation._doc.get("$set", {}).items():
+                set_path(document, path, value)
+            modified += 1
+        result = Mock()
+        result.modified_count = modified
+        return result
+
     # Attach mock implementations
     collection.find.side_effect = find_side_effect
     collection.insert_one.side_effect = insert_one_side_effect
@@ -174,8 +201,21 @@ def mock_collection():
     collection.create_index.side_effect = create_index_side_effect
     collection.index_information.side_effect = index_information_side_effect
     collection.drop_index.side_effect = drop_index_side_effect
-    
+    collection.bulk_write.side_effect = bulk_write_side_effect
+
     return collection
+
+
+@pytest.fixture
+def mock_collection():
+    """An in-memory mock collection (see make_mock_collection)."""
+    return make_mock_collection()
+
+
+@pytest.fixture
+def mock_collection_factory():
+    """Factory for tests that need several independent mock collections."""
+    return make_mock_collection
 
 
 @pytest.fixture

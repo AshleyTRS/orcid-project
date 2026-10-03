@@ -4,11 +4,13 @@ Master migration script: Execute all data migrations in correct order.
 Runs all migrations sequentially:
 1. migrate_doi - Extract DOI from external_ids
 2. merge_metadata - Join works_metadata into works
-3. enrich_institutions - Add institution information
-4. link_contributors - Link contributors to ORCID profiles
-5. add_author_count - Precompute author counts
-6. create_indexes - Create optimized indexes
-7. drop_unused_indexes - Remove obsolete indexes
+3. merge_open_access - Copy open-access status and location into works
+4. enrich_institutions - Add institution information
+5. link_contributors - Link contributors to ORCID profiles
+6. add_work_key - Identify duplicate records of the same work, count unique works
+7. add_author_count - Precompute author counts
+8. create_indexes - Create optimized indexes
+9. drop_unused_indexes - Remove obsolete indexes
 """
 import logging
 import sys
@@ -23,9 +25,10 @@ from src.db.MongoConnection import MongoConnection
 
 # Import all migration modules
 from src.data_migration.migrate_doi import migrate_doi
-from src.data_migration.merge_metadata import merge_metadata
+from src.data_migration.merge_metadata import merge_metadata, merge_open_access
 from src.data_migration.enrich_institutions import enrich_institutions
 from src.data_migration.link_contributors import link_contributors
+from src.data_migration.add_work_key import add_work_key
 from src.data_migration.add_author_count import add_author_count
 from src.data_migration.create_indexes import create_indexes
 from src.data_migration.drop_unused_indexes import drop_unused_indexes
@@ -109,27 +112,37 @@ class MigrationRunner:
                 (self.mongo.works(), self.mongo.metadata())
             ),
             (
-                "3. Enrich institutions from ORCID profiles",
+                "3. Merge open-access status from works_metadata",
+                merge_open_access,
+                (self.mongo.works(), self.mongo.metadata())
+            ),
+            (
+                "4. Enrich institutions from ORCID profiles",
                 enrich_institutions,
                 (self.mongo.works(), self.mongo.orcids())
             ),
             (
-                "4. Link contributors to ORCID profiles",
+                "5. Link contributors to ORCID profiles",
                 link_contributors,
                 (self.mongo.works(), self.mongo.orcids())
             ),
             (
-                "5. Add precomputed author_count",
+                "6. Add work_key and unique works counts",
+                add_work_key,
+                (self.mongo.works(), self.mongo.orcids())
+            ),
+            (
+                "7. Add precomputed author_count",
                 add_author_count,
                 (self.mongo.works(),)
             ),
             (
-                "6. Create optimized indexes",
+                "8. Create optimized indexes",
                 create_indexes,
                 (self.mongo.works(),)
             ),
             (
-                "7. Drop unused indexes",
+                "9. Drop unused indexes",
                 drop_unused_indexes,
                 (self.mongo.works(),)
             ),

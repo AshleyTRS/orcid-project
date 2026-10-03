@@ -93,73 +93,73 @@ def merge_open_access(works_collection, metadata_collection):
     """
     Merge open access information from works_metadata into works documents.
     
-    For each work with a DOI, retrieves matching metadata from works_metadata
-    and copies is_oa and oa_url fields from the open_access object.
-    
+    For each work with a DOI, finds the works_metadata document with the same
+    DOI and copies is_oa and, when present, oa_url from its open_access object.
+
+    The metadata is read in one query and only works whose values change are
+    written, in bulk, so a repeated run on unchanged data writes nothing.
+
     Args:
         works_collection: MongoDB works collection
         metadata_collection: MongoDB works_metadata collection
+
+    Returns:
+        Status dict: updated (works written), merged (works with an is_oa
+        value in their metadata), unchanged, errors
     """
+    from pymongo import UpdateOne
+
     logger.info("Starting open access merge migration...")
-    
-    # Find all works with DOI
-    works_with_doi = works_collection.find(
-        {"doi": {"$exists": True, "$ne": None}},
-        {"_id": 1, "doi": 1}
-    )
-    
-    updated_count = 0
-    merged_count = 0
-    errors = 0
-    
+
     try:
-        works_list = list(works_with_doi)
+        # DOI -> open_access object; the first document per DOI is used, as find_one did
+        open_access_by_doi = {}
+        for metadata in metadata_collection.find(
+            {"doi": {"$exists": True, "$ne": None}, "open_access": {"$exists": True}},
+            {"doi": 1, "open_access": 1}
+        ):
+            open_access_by_doi.setdefault(metadata["doi"], metadata.get("open_access") or {})
+
+        works_list = list(works_collection.find(
+            {"doi": {"$exists": True, "$ne": None}},
+            {"_id": 1, "doi": 1, "is_oa": 1, "oa_url": 1}
+        ))
         logger.info(f"Found {len(works_list)} works with DOI to process")
-        
+
+        updates = []
+        merged_count = 0
+        unchanged = 0
         for work in works_list:
-            try:
-                doi = work["doi"]
-                
-                # Find metadata by DOI
-                metadata = metadata_collection.find_one(
-                    {"doi": doi},
-                    {"open_access": 1}
-                )
-                
-                if metadata and "open_access" in metadata:
-                    open_access = metadata["open_access"]
-                    update_dict = {}
-                    
-                    # Extract is_oa if present
-                    if "is_oa" in open_access:
-                        update_dict["is_oa"] = open_access["is_oa"]
-                        merged_count += 1
-                    
-                    # Extract oa_url if present
-                    if "oa_url" in open_access and open_access["oa_url"]:
-                        update_dict["oa_url"] = open_access["oa_url"]
-                    
-                    if update_dict:
-                        works_collection.update_one(
-                            {"_id": work["_id"]},
-                            {"$set": update_dict}
-                        )
-                        updated_count += 1
-                        logger.debug(f"Updated work {work['_id']} with open access info")
-                
-            except Exception as e:
-                logger.error(f"Error merging open access for work {work['_id']}: {str(e)}")
-                errors += 1
-        
+            open_access = open_access_by_doi.get(work["doi"])
+            if not open_access:
+                continue
+
+            update_dict = {}
+            if "is_oa" in open_access:
+                update_dict["is_oa"] = open_access["is_oa"]
+                merged_count += 1
+            if open_access.get("oa_url"):
+                update_dict["oa_url"] = open_access["oa_url"]
+
+            changed = {k: v for k, v in update_dict.items() if work.get(k) != v}
+            if changed:
+                updates.append(UpdateOne({"_id": work["_id"]}, {"$set": changed}))
+            elif update_dict:
+                unchanged += 1
+
+        for start in range(0, len(updates), 1000):
+            works_collection.bulk_write(updates[start:start + 1000], ordered=False)
+
         logger.info(
-            f"Open access merge completed. Updated: {updated_count}, "
-            f"Merged: {merged_count}, Errors: {errors}"
+            f"Open access merge completed. Updated: {len(updates)}, "
+            f"Merged: {merged_count}, Unchanged: {unchanged}"
         )
         return {
             "status": "success",
-            "updated": updated_count,
+            "updated": len(updates),
             "merged": merged_count,
-            "errors": errors
+            "unchanged": unchanged,
+            "errors": 0
         }
     
     except Exception as e:
@@ -172,11 +172,12 @@ def merge_open_access(works_collection, metadata_collection):
 
 def check_works_count(orcids_collection, works_collection):
     """
-    Verify and update works_count field in orcids collection.
+    Verify and update works_count and unique_works_count in orcids collection.
     
-    For each ORCID profile, counts the actual number of works associated
-    with that orcid_id in the works collection and updates works_count
-    if it doesn't match.
+    For each ORCID profile, counts the actual number of works documents
+    associated with that orcid_id (works_count = ORCID records, duplicates
+    included) and updates it if it doesn't match. unique_works_count, the
+    number of distinct works by work_key, is then recomputed for all authors.
     
     Args:
         orcids_collection: MongoDB orcids collection
@@ -232,10 +233,16 @@ def check_works_count(orcids_collection, works_collection):
             f"Works count verification completed. Verified: {verified_count}, "
             f"Updated: {updated_count}, Errors: {errors}"
         )
+
+        # Distinct works per author, so duplicate ORCID records are not counted
+        from src.works.work_key import update_unique_works_counts
+        unique = update_unique_works_counts(works_collection, orcids_collection)
+
         return {
             "status": "success",
             "verified": verified_count,
             "updated": updated_count,
+            "unique_works_counts_updated": unique["updated"],
             "errors": errors
         }
     
