@@ -4,13 +4,13 @@ Harvests works for discovered ORCID profiles.
 """
 
 import time
-import re
 from datetime import datetime, timezone
 from ..models.Work import Work
 from ..storage.WorkStorage import WorkStorage
 from src.orcid.search.OrcidSearchClient import OrcidSearchClient
 from src.orcid.storage.OrcidStorage import OrcidStorage
-import unicodedata
+from src.works.names import normalize_person_name
+from src.works.work_key import apply_work_keys, compute_work_key, update_unique_works_counts
 
 class WorkHarvester:
     def __init__(
@@ -39,7 +39,8 @@ class WorkHarvester:
             try:
                 self.harvest_orcid(orcid["orcid_id"])
                 total_harvested += 1
-                self.mark_orcid_harvested(orcid["orcid_id"], total_harvested)
+                # works_count = ORCID records stored for this author (unique works are counted separately)
+                self.mark_orcid_harvested(orcid["orcid_id"], self.work_storage.count_by_orcid(orcid["orcid_id"]))
             except Exception as e:
                 print(f"[ERROR] {orcid['orcid_id']}: {e}")
 
@@ -67,6 +68,11 @@ class WorkHarvester:
 
             except Exception as e:
                 print(f"[WARN] {orcid_id} put-code {put_code}: {e}")
+
+        # Link this author's duplicate records (e.g. a no-DOI copy of a DOI work)
+        # and refresh their unique works count
+        apply_work_keys(self.work_storage.collection, [orcid_id])
+        update_unique_works_counts(self.work_storage.collection, self.orcid_storage.collection, [orcid_id])
 
         print(f"[DONE] {orcid_id} → {inserted} works")
 
@@ -138,7 +144,7 @@ class WorkHarvester:
                 "sequence": attrs.get("contributor-sequence")
             })
 
-        return Work(
+        work = Work(
             orcid_id=orcid_id,
             put_code=put_code,
             title=title,
@@ -149,6 +155,8 @@ class WorkHarvester:
             contributors=contributors,
             visibility=data.get("visibility")
         )
+        work.work_key = compute_work_key(work.to_dict())
+        return work
 
     """
     Mark ORCID as harvested in orcids collection.
@@ -161,26 +169,5 @@ class WorkHarvester:
         )
 
     def normalize_name(self, name: str) -> str:
-        if not name:
-            return ""
-
-        # Normalize unicode (accents → ascii)
-        name = unicodedata.normalize("NFKD", name)
-        name = "".join(c for c in name if not unicodedata.combining(c))
-
-        # Lowercase
-        name = name.lower()
-
-        # Replace common separators with space
-        name = re.sub(r"[-,–—]", " ", name)
-
-        # Remove apostrophes (including unicode variants)
-        name = re.sub(r"[’'`]", "", name)
-
-        # Remove any remaining non-letter characters
-        name = re.sub(r"[^a-z\s]", "", name)
-
-        # Collapse multiple spaces
-        name = re.sub(r"\s+", " ", name)
-
-        return name.strip()
+        # Shared with contributor linking so that both sides of a name comparison match
+        return normalize_person_name(name)

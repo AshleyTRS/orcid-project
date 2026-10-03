@@ -48,7 +48,7 @@ class CoauthorshipAggregator:
         
         This method:
         1. Queries MongoDB for publications in the year range
-        2. Deduplicates publications by DOI
+        2. Deduplicates publications by work_key (DOI or matched title)
         3. Extracts all authors (with and without ORCIDs)
         4. Computes productivity (publication counts per author)
         5. Computes collaboration edges and weights

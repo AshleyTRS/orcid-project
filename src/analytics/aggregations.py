@@ -18,6 +18,7 @@ import unicodedata
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
 
+from src.works.work_key import unique_works_stages
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -78,11 +79,12 @@ def build_works_match(
     institutes: Optional[List[str]] = None
 ) -> Dict:
     """
-    Build a ``$match`` filter for works that have a DOI.
+    Build a ``$match`` filter for works (documents that have a work_key).
 
     Shared by the works search and the co-authorship network so both apply
     filters identically. Every argument is optional; list arguments match
-    works having any of the given values.
+    works having any of the given values. Callers collapse duplicate records
+    of the same work by grouping on work_key.
 
     Args:
         query: Free text; every term must match the title, a contributor
@@ -94,7 +96,7 @@ def build_works_match(
         institutes: Institute names, matched as accent-insensitive
             substrings of the affiliated institution names
     """
-    conditions = [{"doi": {"$exists": True, "$ne": None}}]
+    conditions = [{"work_key": {"$ne": None}}]
 
     year_range = {}
     if start_year is not None:
@@ -134,8 +136,8 @@ def publications_per_year(
     """
     Aggregate publication counts by year.
     
-    Counts unique DOIs per publication_year within the requested range.
-    Handles duplicate work documents for the same DOI to prevent overcounting.
+    Counts unique works (by work_key) per publication_year within the requested
+    range, so duplicate records of the same work are counted once.
     
     Args:
         db: MongoDB database object
@@ -161,29 +163,27 @@ def publications_per_year(
     try:
         works_collection = db.works
         
-        # Build match stage to filter by DOI, year range, and exclude invalid values
+        # Build match stage to filter by year range and exclude invalid values
         match_filters = {
-            "doi": {"$exists": True, "$ne": None},
+            "work_key": {"$ne": None},
             "publication_year": {"$exists": True, "$ne": None}
         }
-        
+
         match_filters["publication_year"]["$gte"] = start_year
         match_filters["publication_year"]["$lte"] = end_year
-        
-        # Aggregation pipeline deduplicates by DOI per year first, then counts unique DOIs per year
+
+        # One row per work (its latest recorded year), then count works per year
         pipeline = [
             {"$match": match_filters},
             {
                 "$group": {
-                    "_id": {
-                        "doi": "$doi",
-                        "year": "$publication_year"
-                    }
+                    "_id": "$work_key",
+                    "year": {"$max": "$publication_year"}
                 }
             },
             {
                 "$group": {
-                    "_id": "$_id.year",
+                    "_id": "$year",
                     "count": {"$sum": 1}
                 }
             },
@@ -257,6 +257,8 @@ def publications_per_institution_per_year(
         # Aggregation pipeline
         pipeline = [
             {"$match": match_filters},
+            # Count each work once, however many duplicate records it has
+            *unique_works_stages(fields={"work_key": 1, "publication_year": 1, "institutions": 1}),
             {"$unwind": "$institutions"},
             {
                 "$group": {
@@ -342,6 +344,8 @@ def publications_per_type(
         # Aggregation pipeline
         pipeline = [
             {"$match": match_filters},
+            # Count each work once, however many duplicate records it has
+            *unique_works_stages(fields={"work_key": 1, "type": 1}),
             {
                 "$group": {
                     "_id": "$type",
@@ -421,6 +425,8 @@ def top_authors(
         # Aggregation pipeline
         pipeline = [
             {"$match": match_filters},
+            # Count each of an author's works once (ORCID records can repeat a work)
+            *unique_works_stages(per_author=True, fields={"orcid_id": 1, "work_key": 1}),
             {
                 "$group": {
                     "_id": "$orcid_id",
@@ -502,6 +508,8 @@ def author_contributor_analysis(
         # Aggregation pipeline
         pipeline = [
             {"$match": match_filters},
+            # Count each work once, however many duplicate records it has
+            *unique_works_stages(fields={"work_key": 1, "contributors": 1}),
             {"$unwind": "$contributors"},
             {
                 "$match": {
@@ -592,6 +600,8 @@ def publication_metrics_summary(
         # Main aggregation pipeline
         pipeline = [
             {"$match": match_filters} if match_filters else {"$match": {}},
+            # Count each work once, however many duplicate records it has
+            *unique_works_stages(fields={"work_key": 1, "author_count": 1, "publication_year": 1}),
             {
                 "$group": {
                     "_id": None,
@@ -709,7 +719,7 @@ def all_authors_details(
             "orcid_id": 1,
             "given_names": 1,
             "family_names": 1,
-            "works_count": 1
+            "unique_works_count": 1
         }))
         
         # Format the results
@@ -718,7 +728,7 @@ def all_authors_details(
                 "orcid_id": doc["orcid_id"],
                 "given_names": doc.get("given_names", ""),
                 "family_names": doc.get("family_names", ""),
-                "count": doc.get("works_count", 0),
+                "count": doc.get("unique_works_count", 0),
                 "institute": "INSTITUTO"
             }
             for doc in results
@@ -746,7 +756,8 @@ def all_authors_details_paginated(
     Get paginated authors with minimal fields for fast loading.
 
     Fetches authors from the orcids collection with pagination support.
-    Sorts by works_count DESC for most productive authors first.
+    Sorts by unique_works_count DESC (distinct works, see src/works/work_key.py)
+    for most productive authors first; duplicate ORCID records are not counted.
 
     Args:
         db: MongoDB database object
@@ -803,16 +814,16 @@ def all_authors_details_paginated(
         # Get total count (for has_next calculation)
         total = orcids_collection.count_documents(match_filter)
 
-        # Fetch paginated results sorted by works_count DESC (orcid_id keeps page boundaries stable)
+        # Fetch paginated results sorted by unique works DESC (orcid_id keeps page boundaries stable)
         results = list(orcids_collection.find(
             match_filter,
             {
                 "orcid_id": 1,
                 "given_names": 1,
                 "family_names": 1,
-                "works_count": 1
+                "unique_works_count": 1
             }
-        ).sort([("works_count", -1), ("orcid_id", 1)]).skip(skip).limit(limit))
+        ).sort([("unique_works_count", -1), ("orcid_id", 1)]).skip(skip).limit(limit))
         
         # Format the results
         formatted_results = [
@@ -820,7 +831,7 @@ def all_authors_details_paginated(
                 "orcid_id": doc["orcid_id"],
                 "given_names": doc.get("given_names") or "",
                 "family_names": doc.get("family_names") or "",
-                "count": doc.get("works_count") or 0
+                "count": doc.get("unique_works_count") or 0
             }
             for doc in results
         ]
@@ -946,9 +957,10 @@ def all_works_details_paginated(
     """
     Get paginated works with minimal fields for fast loading.
 
-    Fetches unique works (by DOI) from the works collection with pagination support.
+    Fetches unique works (by work_key) from the works collection with pagination support.
     The same publication is stored once per harvested co-author, so documents are
-    grouped by DOI before paginating; ``total`` is the number of unique DOIs.
+    grouped by work_key before paginating; ``total`` is the number of unique works.
+    Works without a DOI are included (their ``doi`` is null).
     Sorts by publication_year DESC to show recent publications first.
 
     Args:
@@ -1001,12 +1013,14 @@ def all_works_details_paginated(
             keywords=keywords, institutes=institutes
         )
 
-        # Filter first, then collapse per-author duplicates into one row per DOI,
+        # Filter first, then collapse duplicate records into one row per work,
         # then paginate and count in a single round trip.
         pipeline = [
             {"$match": match_filter},
             {"$group": {
-                "_id": "$doi",
+                "_id": "$work_key",
+                # $max prefers a record that has the DOI over a linked no-DOI duplicate
+                "doi": {"$max": "$doi"},
                 "title": {"$first": "$title"},
                 "publication_year": {"$max": "$publication_year"},
                 "type": {"$first": "$type"},
@@ -1027,7 +1041,7 @@ def all_works_details_paginated(
         # Format results
         formatted_results = [
             {
-                "doi": doc["_id"],
+                "doi": doc.get("doi"),
                 "title": doc.get("title") or "",
                 "publication_year": doc.get("publication_year"),
                 "type": doc.get("type") or "",
@@ -1056,7 +1070,7 @@ def all_works_details_paginated(
 
 def value_counts(db, field_path: str, limit: int = 100) -> List[Dict]:
     """
-    Count unique works (by DOI) per value of ``field_path``, most frequent first.
+    Count unique works (by work_key) per value of ``field_path``, most frequent first.
 
     ``field_path`` may be a scalar field ("type") or a path into an array of
     sub-documents ("topics.field.display_name"); a value repeated within one
@@ -1069,10 +1083,10 @@ def value_counts(db, field_path: str, limit: int = 100) -> List[Dict]:
 
     try:
         pipeline = [
-            {"$match": {"doi": {"$exists": True, "$ne": None}, field_path: {"$exists": True, "$ne": None}}},
-            {"$group": {"_id": "$doi", "value": {"$first": f"${field_path}"}}},
+            {"$match": {"work_key": {"$ne": None}, field_path: {"$exists": True, "$ne": None}}},
+            {"$group": {"_id": "$work_key", "value": {"$first": f"${field_path}"}}},
             {"$unwind": "$value"},
-            {"$group": {"_id": {"doi": "$_id", "value": "$value"}}},
+            {"$group": {"_id": {"work": "$_id", "value": "$value"}}},
             {"$group": {"_id": "$_id.value", "count": {"$sum": 1}}},
             {"$sort": {"count": -1, "_id": 1}},
             {"$limit": limit},
@@ -1092,7 +1106,7 @@ def value_counts(db, field_path: str, limit: int = 100) -> List[Dict]:
 
 def top_keywords(db, limit: int = 100) -> List[Dict]:
     """
-    Return the most frequent keywords across unique works (by DOI).
+    Return the most frequent keywords across unique works (by work_key).
 
     Returns:
         List of dicts: [{ "keyword": "Computer science", "count": 812 }, ...]

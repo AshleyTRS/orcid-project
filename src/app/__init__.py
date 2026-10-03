@@ -166,8 +166,8 @@ def get_publications_per_year():
     Get publication counts by year.
 
     Query Parameters:
-        start_year (int): optional start year filter
-        end_year (int): optional end year filter
+        start_year (int): optional start year (default: 1969)
+        end_year (int): optional end year (default: current year)
 
     Returns:
         {
@@ -178,15 +178,15 @@ def get_publications_per_year():
         }
     """
     try:
-        start_year = request.args.get('start_year')
-        end_year = request.args.get('end_year')
+        # Pass only the bounds that were given, so omitted ones keep the function's
+        # defaults (1969 and the current year) instead of becoming null
+        bounds = {}
+        for name in ('start_year', 'end_year'):
+            value = _optional_int(name)
+            if value is not None:
+                bounds[name] = value
 
-        if start_year is not None:
-            start_year = int(start_year)
-        if end_year is not None:
-            end_year = int(end_year)
-
-        result = publications_per_year(mongo.db, start_year=start_year, end_year=end_year)
+        result = publications_per_year(mongo.db, **bounds)
         return jsonify({"data": result})
     except ValueError:
         return jsonify({"error": "Invalid start_year or end_year parameter"}), 400

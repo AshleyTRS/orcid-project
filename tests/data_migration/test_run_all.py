@@ -75,8 +75,10 @@ class TestMigrationRunner:
     
     @patch('src.data_migration.run_all.migrate_doi')
     @patch('src.data_migration.run_all.merge_metadata')
+    @patch('src.data_migration.run_all.merge_open_access')
     @patch('src.data_migration.run_all.enrich_institutions')
     @patch('src.data_migration.run_all.link_contributors')
+    @patch('src.data_migration.run_all.add_work_key')
     @patch('src.data_migration.run_all.add_author_count')
     @patch('src.data_migration.run_all.create_indexes')
     @patch('src.data_migration.run_all.drop_unused_indexes')
@@ -85,8 +87,10 @@ class TestMigrationRunner:
         mock_drop_unused,
         mock_create_idx,
         mock_add_count,
+        mock_add_work_key,
         mock_link_contrib,
         mock_enrich_inst,
+        mock_merge_open_access,
         mock_merge_meta,
         mock_migrate_doi
     ):
@@ -94,8 +98,10 @@ class TestMigrationRunner:
         # Setup mock returns
         mock_migrate_doi.return_value = {"status": "success", "updated": 5}
         mock_merge_meta.return_value = {"status": "success", "merged": 4}
+        mock_merge_open_access.return_value = {"status": "success", "updated": 3}
         mock_enrich_inst.return_value = {"status": "success", "enriched": 5}
         mock_link_contrib.return_value = {"status": "success", "matched": 8}
+        mock_add_work_key.return_value = {"status": "success", "work_keys_updated": 5}
         mock_add_count.return_value = {"status": "success", "total_works": 5}
         mock_create_idx.return_value = {"status": "success", "created": 12}
         mock_drop_unused.return_value = {"status": "success", "dropped": 1}
@@ -116,10 +122,12 @@ class TestMigrationRunner:
         assert "successful" in summary
         assert "failed" in summary
         
-        # All 7 migrations should succeed
-        assert summary["total_migrations"] == 7
-        assert summary["successful"] == 7
+        # All 9 migrations should succeed
+        assert summary["total_migrations"] == 9
+        assert summary["successful"] == 9
         assert summary["failed"] == 0
+        mock_add_work_key.assert_called_once()
+        mock_merge_open_access.assert_called_once()
     
     @patch('src.data_migration.run_all.migrate_doi')
     @patch('src.data_migration.run_all.merge_metadata')

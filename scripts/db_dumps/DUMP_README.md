@@ -1,155 +1,125 @@
-# Database Dump Scripts
+# Database Backup and Restoration
 
-Two scripts for creating MongoDB database backups:
+Two scripts create backups of the database named by `DB_NAME` in `.env`. Both write to a timestamped subdirectory of `backups/` in the project root, which is excluded from version control. A backup should be taken before running migrations or any operation that modifies many documents.
+
+| Script | Method | Format |
+| --- | --- | --- |
+| `dump_database.py` | MongoDB Database Tools (`mongodump`) | BSON with metadata |
+| `dump_database_pymongo.py` | PyMongo | JSON, one file per collection |
+
+`dump_database.py` is the recommended method. `dump_database_pymongo.py` is an alternative for environments in which the Database Tools cannot be installed.
 
 ---
 
-## Option 1: `dump_database.py`
+## `dump_database.py`
 
-Uses the standard MongoDB `mongodump` tool for efficient, native backups. This is the recommended script for backups.
+### Prerequisites of the mongodump method
 
-### Prerequisites
+The MongoDB Database Tools must be installed and `mongodump` must be on the system path.
 
-Install MongoDB tools:
+| Platform | Installation |
+| --- | --- |
+| Windows | Installer from <https://www.mongodb.com/docs/database-tools/installation/> |
+| macOS | `brew install mongodb-database-tools` |
+| Ubuntu or Debian | `sudo apt-get install mongodb-database-tools` (from the MongoDB package repository) |
 
-Using macOS:
+### Usage of the mongodump method
 
 ```bash
-brew install mongodb-community
+python scripts/db_dumps/dump_database.py
 ```
 
-Using Linux:
+### Output of the mongodump method
 
-```bash
-# Linux - Ubuntu/Debian
-sudo apt-get install mongodb-org-tools
-```
-
-Using Windows:
-
-Download from <https://docs.mongodb.com/database-tools/installation/>
-
-### Usage
-
-From project root run:
-
-```bash
-python scripts/dump_database.py
-```
-
-### Output
-
-Creates timestamped backup in `./backups/` directory:
-
-```bash
+```txt
 backups/
-└── orcid_backup_20260319_143022/
-    └── orcid/
-        ├── works.bson
-        ├── orcids.bson
-        ├── works.metadata.json
-        └── ... (all collections)
+  <DB_NAME>_backup_<YYYYMMDD_HHMMSS>/
+    <DB_NAME>/
+      works.bson
+      works.metadata.json
+      orcids.bson
+      ...
 ```
 
-### Advantages
+The script invokes `mongodump --db=<DB_NAME> --out=<backup directory>` and does not write the connection string to its log.
 
-The built-in MongoDB tool is a standard method. All data types are preserved. Because it is a native tool, it is efficient for backing up large databases.
+### Properties of the mongodump method
+
+`mongodump` preserves every BSON type (for example `ObjectId` and dates) together with index definitions, produces compact files, and is suited to large databases. Restoration uses `mongorestore`.
 
 ---
 
-## Option 2: `dump_database_pymongo.py`
+## `dump_database_pymongo.py`
 
-Uses PyMongo to create JSON backups. No external dependencies needed. This is a portable and pythonic method.
+### Prerequisites of the PyMongo method
 
-### Prerequisites
+None beyond the project dependencies.
 
-PyMongo is already installed (check requirements.txt).
-
-### Usage
-
-Run this from project root:
+### Usage of the PyMongo method
 
 ```bash
 python scripts/db_dumps/dump_database_pymongo.py
 ```
 
-### Output
+### Output of the PyMongo method
 
-Creates timestamped backup in `./backups/` directory:
-
-```bash
+```txt
 backups/
-└── orcid_backup_pymongo_20260319_143022/
-    ├── metadata.json      (collection names, document count)
-    ├── works.json
-    ├── orcids.json
-    ├── works_metadata.json
-    └── ... (all collections as JSON files)
+  <DB_NAME>_backup_pymongo_<YYYYMMDD_HHMMSS>/
+    metadata.json          collection names and document counts
+    works.json
+    orcids.json
+    works_metadata.json
+    ...
 ```
 
-### Advantages
+### Properties of the PyMongo method
 
-There are no external dependencies, format is human readable because it is backed up in JSON format, and it works anywhere Python runs.
+The files are human-readable and require no external tools. JSON is larger than BSON and slower to produce for large collections, and it does not preserve BSON types: `ObjectId` values and dates are written as strings. Index definitions are not saved, and restoration requires a custom script.
 
-### Disadvantages
-
-This method can be slower for larger databases as JSON serialization takes longer. File sizes are bigger - JSON is more verbose than BSON. Not all data types are preserved. For examples, ObjectIds become strings.
-  
 ---
 
 ## Comparison
 
-| Feature | mongodump | PyMongo |
-| --------- | ----------- | --------- |
-| Speed | Fast | Slow |
-| File size | Small (BSON) | Large (JSON) |
-| Dependencies | MongoDB tools required | PyMongo only |
-| Human-readable | Binary format | JSON |
-| Restore | Use mongorestore | Custom script needed |
-| Large databases | Recommended | Not ideal |
+| Property | `mongodump` | PyMongo |
+| --- | --- | --- |
+| Speed on large collections | Higher | Lower |
+| File size | Smaller (BSON) | Larger (JSON) |
+| External dependency | MongoDB Database Tools | None |
+| Human-readable | No | Yes |
+| BSON types and indexes preserved | Yes | No |
+| Restoration | `mongorestore` | Custom script |
 
 ---
 
-## Backup Locations
+## Restoration
 
-Both scripts create timestamped backups in `./backups/`:
-
-```bash
-./backups/
-├── orcid_backup_20260319_140000/        (mongodump)
-├── orcid_backup_20260319_143022/        (mongodump)
-└── orcid_backup_pymongo_20260319_144000/ (PyMongo)
-```
-
----
-
-## Restoring Backups
-
-### From mongodump backup
+### From a `mongodump` backup
 
 ```bash
-# Restore entire database
-mongorestore --uri="<MONGO_URI>" --db=<DB_NAME> ./backups/orcid_backup_20260319_140000/orcid
+# Entire database
+mongorestore --uri="<MONGO_CONN>" --db=<DB_NAME> ./backups/<DB_NAME>_backup_<timestamp>/<DB_NAME>
 
-# Restore specific collection
-mongorestore --uri="<MONGO_URI>" --db=<DB_NAME> --collection=works \
-  ./backups/orcid_backup_20260319_140000/orcid/works.bson
+# One collection
+mongorestore --uri="<MONGO_CONN>" --db=<DB_NAME> --collection=works \
+  ./backups/<DB_NAME>_backup_<timestamp>/<DB_NAME>/works.bson
 ```
 
-### From PyMongo backup
+Adding `--drop` replaces existing collections instead of inserting into them.
 
-It is necessary to write a restoration script. Example:
+### From a PyMongo backup
+
+The JSON files are restored with a short script. Identifiers and dates are restored as strings unless they are converted explicitly.
 
 ```python
 import json
 from pymongo import MongoClient
 
-# Load backup
-with open('backups/.../works.json') as f:
+with open("backups/<backup directory>/works.json", encoding="utf-8") as f:
     documents = json.load(f)
 
-# Insert into database
-client = MongoClient("<MONGO_URI>")
-db = client["<DB_NAME>"]
-db.works.insert_many(documents)
+client = MongoClient("<MONGO_CONN>")
+client["<DB_NAME>"].works.insert_many(documents)
 ```
+
+The indexes used by the application are recreated by `python -m src.data_migration.run_all`.

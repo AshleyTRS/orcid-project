@@ -3,8 +3,7 @@ Author profile queries: one author's details, summary statistics and works.
 
 A publication is stored once per harvested co-author, and ORCID records often
 hold the same work several times (imported from different sources). Works are
-therefore collapsed to one entry per DOI, or per normalised title + year when
-there is no DOI.
+therefore collapsed to one entry per work_key (see src/works/work_key.py).
 """
 import logging
 import re
@@ -25,30 +24,15 @@ MAX_OBSERVED_NAMES = 8
 # Characters ignored at the start/end of a title when sorting by title
 _TITLE_TRIM_CHARS = " \"'`“”‘’«»¿¡([{*-"
 
-# One row per unique work: the DOI when present (DOIs are case-insensitive, so
-# lower-cased), otherwise lower-cased title + year, falling back to the
-# document id when the title is empty. No collation is used, so the author
-# match keeps using the orcid_id indexes; $toLower only folds ASCII, so a
-# title duplicated with accented capitals is not merged.
-_WORK_KEY = {
-    "$cond": [
-        {"$gt": [{"$strLenCP": {"$ifNull": ["$doi", ""]}}, 0]},
-        {"$concat": ["doi:", {"$toLower": "$doi"}]},
-        {"$cond": [
-            {"$gt": [{"$strLenCP": {"$trim": {"input": {"$ifNull": ["$title", ""]}}}}, 0]},
-            {"$concat": [
-                "title:", {"$toLower": {"$trim": {"input": "$title"}}},
-                "|", {"$toString": {"$ifNull": ["$publication_year", ""]}},
-            ]},
-            {"$toString": "$_id"},
-        ]},
-    ]
-}
+# One row per unique work. A document not yet keyed (harvested before the
+# work_key migration ran) counts as its own work rather than being dropped.
+_WORK_KEY = {"$ifNull": ["$work_key", {"$toString": "$_id"}]}
 
 _GROUP_WORKS = {
     "$group": {
         "_id": _WORK_KEY,
-        "doi": {"$first": "$doi"},
+        # $max prefers a record that has the DOI over a linked no-DOI duplicate
+        "doi": {"$max": "$doi"},
         "title": {"$first": "$title"},
         "publication_year": {"$max": "$publication_year"},
         "type": {"$first": "$type"},
