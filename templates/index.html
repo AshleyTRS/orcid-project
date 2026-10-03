@@ -4,244 +4,1166 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Co-authorship Network Visualization</title>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
+    <title>UAEH Researchers Network - Research Collaboration Discovery</title>
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            padding: 20px;
-        }
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" crossorigin="anonymous"></script>
 
-        h1 {
-            text-align: center;
-            color: #333;
-            margin-bottom: 30px;
-        }
-
-        .controls {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-bottom: 20px;
-            gap: 20px;
-        }
-
-        .stats {
-            text-align: center;
-            margin-bottom: 20px;
-            color: #666;
-        }
-
-        svg {
-            display: block;
-            margin: 0 auto;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-
-        .node {
-            cursor: pointer;
-        }
-
-        .node:hover {
-            stroke: #000;
-            stroke-width: 2px;
-        }
-
-        .link {
-            stroke: #999;
-            stroke-opacity: 0.6;
-        }
-
-        .tooltip {
-            position: absolute;
-            padding: 8px;
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            border-radius: 4px;
-            font-size: 12px;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-    </style>
+    <!-- External Stylesheet -->
+    <link rel="stylesheet" href="/static/styles/main.css">
+    <script src="/static/js/uaeh-institutes.js"></script>
 </head>
 
 <body>
-    <div class="container">
-        <h1>Co-authorship Network Visualization</h1>
+    {% include '_header.html' %}
 
-        <div class="controls">
-            <label>Start Year: <input id="startYear" type="number" value="2020"></label>
-            <label>End Year: <input id="endYear" type="number" value="2025"></label>
-            <button id="applyYearFilter">Apply</button>
+    <!-- Main Container -->
+    <main class="container">
+        <div class="page-header">
+            <h1 class="page-title">Explore research</h1>
+            <p class="page-subtitle">Discover research collaborations and track scholarly impact</p>
         </div>
 
-        <div class="stats" id="stats">Loading data...</div>
+        <!-- Search Section -->
+        <section class="search-section">
+            <div class="search-box">
+                <form class="search-input-row" id="searchForm" role="search">
+                    <div class="search-mode-dropdown">
+                        <button type="button" class="search-mode-btn" id="searchModeBtn" aria-haspopup="true">
+                            <span id="searchModeLabel">authors</span>
+                        </button>
+                        <div class="search-mode-menu" id="searchModeMenu">
+                            <button type="button" class="search-mode-option selected" data-mode="authors">
+                                <span class="search-mode-option-title">Authors</span>
+                                <span class="search-mode-option-desc">Search by researcher name or ORCID</span>
+                            </button>
+                            <button type="button" class="search-mode-option" data-mode="works">
+                                <span class="search-mode-option-title">Works</span>
+                                <span class="search-mode-option-desc">Find publications and research outputs</span>
+                            </button>
+                            <!-- <div class="search-mode-option" data-mode="sub-institutions">
+                                <span class="search-mode-option-title">Sub-Institutions</span>
+                                <span class="search-mode-option-desc">Browse by department or research unit</span>
+                            </div>
+                            <div class="search-mode-option" data-mode="year">
+                                <span class="search-mode-option-title">Publication Year</span>
+                                <span class="search-mode-option-desc">Filter by publication date</span>
+                            </div> -->
+                        </div>
+                    </div>
+                    <div class="search-field">
+                        <input type="search" class="search-input" id="searchInput"
+                            placeholder="Search by researcher name or ORCID iD..." aria-label="Search" autocomplete="off">
+                        <button type="button" class="search-clear-btn" id="searchClearBtn" aria-label="Clear search"
+                            hidden>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" aria-hidden="true">
+                                <path d="M18 6 6 18M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <button type="submit" class="btn btn-primary search-submit-btn" id="searchSubmitBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" aria-hidden="true">
+                            <circle cx="11" cy="11" r="8" />
+                            <path d="m21 21-4.3-4.3" />
+                        </svg>
+                        <span>Search</span>
+                    </button>
+                </form>
 
-        <svg id="network-svg" width="1000" height="600"></svg>
-        <div class="tooltip" id="tooltip"></div>
-    </div>
+                <div class="filters" id="filtersContainer">
+                    <!-- Primary filters -->
+                    <button type="button" class="filter-chip" data-filter="year" data-primary="true">
+                        <span>Year</span>
+                    </button>
+                    <button type="button" class="filter-chip" data-filter="keywords" data-primary="true">
+                        <span>Keywords</span>
+                    </button>
+                    <button type="button" class="filter-chip" data-filter="instittutes" data-primary="true">
+                        <span>Institutes</span>
+                    </button>
+
+                    <!-- Secondary filters -->
+                    <!-- <div class="filter-chip secondary" data-filter="more" data-primary="false">
+                        <span>More filters...</span>
+                    </div> -->
+                </div>
+
+                <!-- Year Range Selector -->
+                <div class="year-range-selector" id="yearRangeSelector" style="display: none;">
+                    <div class="year-range-content">
+                        <div class="year-range-inputs">
+                            <div class="year-input-group">
+                                <label for="yearFrom">From</label>
+                                <input type="number" id="yearFrom" class="year-input" placeholder="2020" min="1900"
+                                    max="2030">
+                            </div>
+                            <span class="year-range-separator">to</span>
+                            <div class="year-input-group">
+                                <label for="yearTo">To</label>
+                                <input type="number" id="yearTo" class="year-input" placeholder="2025" min="1900"
+                                    max="2030">
+                            </div>
+                        </div>
+                        <div class="year-range-actions">
+                            <button class="year-back-btn" id="yearBackBtn">Back</button>
+                            <button class="year-apply-btn" id="yearApplyBtn">Apply</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analytics Year Range Selector -->
+                <div class="year-range-selector" id="analyticsYearRangeSelector" style="display: none;">
+                    <div class="year-range-content">
+                        <div class="year-range-inputs">
+                            <div class="year-input-group">
+                                <label for="analyticsYearFrom">From</label>
+                                <input type="number" id="analyticsYearFrom" class="year-input" placeholder="1969"
+                                    min="1900" max="2030">
+                            </div>
+                            <span class="year-range-separator">to</span>
+                            <div class="year-input-group">
+                                <label for="analyticsYearTo">To</label>
+                                <input type="number" id="analyticsYearTo" class="year-input" placeholder="2026"
+                                    min="1900" max="2030">
+                            </div>
+                        </div>
+                        <div class="year-range-actions">
+                            <button class="year-back-btn" id="analyticsYearBackBtn">Back</button>
+                            <button class="year-apply-btn" id="analyticsYearApplyBtn">Apply</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Keywords Selector -->
+                <div class="keywords-selector" id="keywordsSelector" style="display: none;">
+                    <div class="keywords-selector-content">
+                        <div class="keywords-search-box">
+                            <input type="text" id="keywordsSearchInput" class="keywords-search-input"
+                                placeholder="Search keywords..." aria-label="Search keywords">
+                        </div>
+                        <div class="keywords-list" id="keywordsList">
+                            <!-- Keywords with checkboxes will be inserted here -->
+                        </div>
+                        <div class="keywords-actions">
+                            <button class="keywords-back-btn" id="keywordsBackBtn">Back</button>
+                            <button class="keywords-apply-btn" id="keywordsApplyBtn">Apply</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Institutes Selector -->
+                <div class="institutes-selector" id="institutesSelector" style="display: none;">
+                    <div class="institutes-selector-content">
+                        <div class="institutes-search-box">
+                            <input type="text" id="institutesSearchInput" class="institutes-search-input"
+                                placeholder="Search institutes..." aria-label="Search institutes">
+                        </div>
+                        <div class="institutes-list" id="institutesList">
+                            <!-- Institutes with checkboxes will be inserted here -->
+                        </div>
+                        <div class="institutes-actions">
+                            <button class="institutes-back-btn" id="institutesBackBtn">Back</button>
+                            <button class="institutes-apply-btn" id="institutesApplyBtn">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Grid -->
+        <div class="main-grid">
+            <!-- Results Panel -->
+            <div class="results-panel">
+                <div class="panel-header">
+                    <div class="results-count">
+                        <span class="results-count-number" id="resultsCount">0</span> results<span
+                            class="results-query" id="resultsQuery"></span>
+                    </div>
+                    <button type="button" class="sort-btn">
+                        Sort
+                    </button>
+                </div>
+                <div class="results-list" id="resultsList" aria-live="polite">
+                    <!-- Results will be dynamically inserted here -->
+                </div>
+                <!-- Pagination Controls -->
+                <div class="pagination-controls" id="paginationControls">
+                    <div class="pagination-info">
+                        Page <span class="pagination-page-num" id="currentPage">1</span>
+                        of <span class="pagination-total-pages" id="totalPages">1</span>
+                    </div>
+                    <div class="pagination-buttons">
+                        <button class="pagination-btn pagination-prev-btn disabled" id="paginationPrev" tabindex="0">
+                            Previous
+                        </button>
+                        <button class="pagination-btn pagination-next-btn disabled" id="paginationNext" tabindex="0">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analytics Panel -->
+            <div class="analytics-panel" id="analyticsPanel">
+                <!-- Analytics cards will be dynamically inserted here -->
+            </div>
+        </div>
+    </main>
 
     <script>
-        const width = 1000;
-        const height = 600;
+        // Inline SVG icons (Lucide-style, 24px grid) so icons inherit the text color
+        const svgIcon = paths => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+        const ICONS = {
+            file: svgIcon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/>'),
+            filter: svgIcon('<path d="M22 3H2l8 9.46V19l4 2v-8.54z"/>'),
+            search: svgIcon('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+            alert: svgIcon('<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>')
+        };
 
-        const svg = d3.select("#network-svg");
-        const tooltip = d3.select("#tooltip");
+        function emptyState(icon, text) {
+            return `
+                <div class="empty-state">
+                    <div class="empty-state-icon">${ICONS[icon]}</div>
+                    <div class="empty-state-text">${text}</div>
+                </div>
+            `;
+        }
 
-        // Zoom container
-        const zoomContainer = svg.append("g");
+        // Blue chart palette, dark to light so neighbouring slices stay distinguishable
+        const CHART_COLORS = ['#172554', '#1e40af', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#64748b'];
+        const CHART_PRIMARY = '#1e40af';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.color = '#475569';
 
-        // Scales
-        const nodeSizeScale = d3.scaleSqrt().range([5, 20]);
-        const edgeWidthScale = d3.scaleLinear().range([1, 5]);
+        const UAEH_INSTITUTES = window.UAEH_INSTITUTES;
 
-        let currentTransform = d3.zoomIdentity;
-        let currentData = { nodes: [], edges: [] };
+        // Analytics placeholders (not yet backed by an API)
+        const mockSubInstitutionStats = {
+            "Instituto de Ciencias Sociales y Humanidades": 45,
+            "Instituto de Ciencias Básicas e Ingeniería": 38,
+            "Instituto de Ciencias Sociales y Humanidades": 52,
+            "Instituto de Ciencias de la Salud": 41,
+            "Instituto de Ciencias Sociales y Humanidades": 49,
+            "Escuela Superior de Tizayuca": 36,
+            "Escuela Superior de Tlahuelilpan": 44,
+            "Escuela Superior de Zimapán": 39
+        };
 
-        // Zoom behavior
-        const zoom = d3.zoom()
-            .scaleExtent([0.1, 10])
-            .on("zoom", (event) => {
-                currentTransform = event.transform;
-                zoomContainer.attr("transform", currentTransform);
+        const mockPublicationTypes = {
+            "Journal Article": 1245,
+            "Conference Paper": 678,
+            "Book Chapter": 234,
+            "Thesis": 89,
+            "Preprint": 156,
+            "Review": 123
+        };
 
-                zoomContainer.selectAll(".node")
-                    .attr("r", d => nodeSizeScale(d.publications) / currentTransform.k);
+        const ENDPOINTS = { authors: '/api/authors', works: '/api/works' };
+        const PLACEHOLDERS = {
+            authors: 'Search by researcher name or ORCID iD...',
+            works: 'Search by title, author or DOI...'
+        };
+        const MAX_LISTED_CONTRIBUTORS = 6;
 
-                zoomContainer.selectAll(".link")
-                    .style("stroke-width", d => edgeWidthScale(d.weight) / currentTransform.k);
+        // State
+        let currentSearchMode = 'authors';
+        const currentYear = new Date().getFullYear();
+        let yearFilter = { from: 1969, to: currentYear };
+        let yearFilterActive = false;
+        let searchQuery = '';
+        // selected* track checkboxes in an open popover; applied* are what the last search used
+        let selectedKeywords = [];
+        let selectedInstitutes = [];
+        let appliedKeywords = [];
+        let appliedInstitutes = [];
+        let keywordOptions = null;  // loaded from /api/keywords on first use
+        let charts = {};
+
+        // Pagination state
+        let paginationState = {
+            currentPage: 1,
+            limit: 50,
+            total: 0,
+            hasNext: false,
+            isLoading: false
+        };
+        // Incremented per request so responses for superseded searches are ignored
+        let latestRequestId = 0;
+
+        // DOM Elements
+        const searchModeBtn = document.getElementById('searchModeBtn');
+        const searchModeMenu = document.getElementById('searchModeMenu');
+        const searchModeLabel = document.getElementById('searchModeLabel');
+        const searchForm = document.getElementById('searchForm');
+        const searchInput = document.getElementById('searchInput');
+        const searchClearBtn = document.getElementById('searchClearBtn');
+        const resultsList = document.getElementById('resultsList');
+        const resultsCount = document.getElementById('resultsCount');
+        const resultsQuery = document.getElementById('resultsQuery');
+        const analyticsPanel = document.getElementById('analyticsPanel');
+        const paginationPrev = document.getElementById('paginationPrev');
+        const paginationNext = document.getElementById('paginationNext');
+        const currentPageSpan = document.getElementById('currentPage');
+        const totalPagesSpan = document.getElementById('totalPages');
+        const yearRangeSelector = document.getElementById('yearRangeSelector');
+        const yearFromInput = document.getElementById('yearFrom');
+        const yearToInput = document.getElementById('yearTo');
+        const yearBackBtn = document.getElementById('yearBackBtn');
+        const yearApplyBtn = document.getElementById('yearApplyBtn');
+        const yearChip = document.querySelector('[data-filter="year"]');
+
+        const keywordsSelector = document.getElementById('keywordsSelector');
+        const keywordsSearchInput = document.getElementById('keywordsSearchInput');
+        const keywordsList = document.getElementById('keywordsList');
+        const keywordsBackBtn = document.getElementById('keywordsBackBtn');
+        const keywordsApplyBtn = document.getElementById('keywordsApplyBtn');
+        const keywordsChip = document.querySelector('[data-filter="keywords"]');
+        const institutesSelector = document.getElementById('institutesSelector');
+        const institutesSearchInput = document.getElementById('institutesSearchInput');
+        const institutesList = document.getElementById('institutesList');
+        const institutesBackBtn = document.getElementById('institutesBackBtn');
+        const institutesApplyBtn = document.getElementById('institutesApplyBtn');
+        const institutesChip = document.querySelector('[data-filter="instittutes"]');
+        const analyticsYearRangeSelector = document.getElementById('analyticsYearRangeSelector');
+        const analyticsYearFromInput = document.getElementById('analyticsYearFrom');
+        const analyticsYearToInput = document.getElementById('analyticsYearTo');
+        const analyticsYearBackBtn = document.getElementById('analyticsYearBackBtn');
+        const analyticsYearApplyBtn = document.getElementById('analyticsYearApplyBtn');
+
+        const popovers = {
+            year: yearRangeSelector,
+            keywords: keywordsSelector,
+            instittutes: institutesSelector
+        };
+
+        // Initialize
+        init();
+
+        function init() {
+            setupEventListeners();
+
+            // Set default year values for search filters and analytics range
+            yearFromInput.value = yearFilter.from;
+            yearToInput.value = yearFilter.to;
+            analyticsYearFromInput.value = yearFilter.from;
+            analyticsYearToInput.value = yearFilter.to;
+
+            updateSearchMode('authors');
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        /**
+         * Build the API URL for the current mode, page, query and applied filters.
+         */
+        function buildSearchUrl(page) {
+            const params = new URLSearchParams({ page, limit: paginationState.limit });
+            if (searchQuery) {
+                params.set('q', searchQuery);
+            }
+            appliedInstitutes.forEach(name => params.append('institute', name));
+
+            if (currentSearchMode === 'works') {
+                if (yearFilterActive) {
+                    params.set('start_year', yearFilter.from);
+                    params.set('end_year', yearFilter.to);
+                }
+                appliedKeywords.forEach(keyword => params.append('keyword', keyword));
+            }
+            return `${ENDPOINTS[currentSearchMode]}?${params.toString()}`;
+        }
+
+        /**
+         * Fetch one page of results for the current search.
+         * A newer request supersedes an older one instead of being dropped.
+         */
+        async function fetchResults(page = 1) {
+            const requestId = ++latestRequestId;
+            const mode = currentSearchMode;
+            setLoading(true);
+
+            try {
+                const response = await fetch(buildSearchUrl(page));
+                const data = await response.json().catch(() => ({}));
+                if (requestId !== latestRequestId) return;
+
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP ${response.status}`);
+                }
+
+                const results = Array.isArray(data.data) ? data.data : [];
+                paginationState.currentPage = Number.isInteger(data.page) ? data.page : page;
+                paginationState.total = Number.isInteger(data.total) ? data.total : results.length;
+                paginationState.hasNext = typeof data.has_next === 'boolean'
+                    ? data.has_next
+                    : results.length === paginationState.limit;
+
+                updateResultsSummary();
+                if (results.length === 0) {
+                    resultsList.innerHTML = emptyState('search', noResultsMessage());
+                } else if (mode === 'authors') {
+                    renderAuthorResults(results);
+                } else {
+                    renderWorkResults(results);
+                }
+                resultsList.scrollTop = 0;
+
+            } catch (error) {
+                if (requestId !== latestRequestId) return;
+                console.error('Error fetching data:', error);
+                paginationState.total = 0;
+                paginationState.hasNext = false;
+                updateResultsSummary();
+                resultsList.innerHTML = emptyState('alert', 'Error loading data. Please try again.');
+            } finally {
+                if (requestId === latestRequestId) {
+                    setLoading(false);
+                }
+            }
+        }
+
+        /** Start a new search from page 1 using the current query and applied filters. */
+        function runSearch() {
+            fetchResults(1);
+        }
+
+        function setLoading(isLoading) {
+            paginationState.isLoading = isLoading;
+            resultsList.setAttribute('aria-busy', String(isLoading));
+            updatePaginationUI();
+        }
+
+        function hasActiveFilters() {
+            return Boolean(searchQuery) || appliedInstitutes.length > 0 ||
+                (currentSearchMode === 'works' && (yearFilterActive || appliedKeywords.length > 0));
+        }
+
+        function noResultsMessage() {
+            if (searchQuery) {
+                return `No ${currentSearchMode} match “${escapeHtml(searchQuery)}”. Check the spelling or remove some filters.`;
+            }
+            return hasActiveFilters()
+                ? `No ${currentSearchMode} match the selected filters.`
+                : `No ${currentSearchMode} found.`;
+        }
+
+        function updateResultsSummary() {
+            resultsCount.textContent = paginationState.total.toLocaleString();
+            resultsQuery.textContent = searchQuery ? ` for “${searchQuery}”` : '';
+        }
+
+        /**
+         * Update pagination UI (buttons, page numbers)
+         */
+        function updatePaginationUI() {
+            const totalPages = Math.max(1, Math.ceil(paginationState.total / paginationState.limit));
+            currentPageSpan.textContent = paginationState.currentPage;
+            totalPagesSpan.textContent = totalPages;
+
+            const prevDisabled = paginationState.currentPage <= 1 || paginationState.isLoading;
+            const nextDisabled = !paginationState.hasNext || paginationState.isLoading;
+            paginationPrev.classList.toggle('disabled', prevDisabled);
+            paginationNext.classList.toggle('disabled', nextDisabled);
+            paginationPrev.setAttribute('aria-disabled', String(prevDisabled));
+            paginationNext.setAttribute('aria-disabled', String(nextDisabled));
+        }
+
+        function hidePopovers() {
+            Object.values(popovers).forEach(popover => {
+                popover.style.display = 'none';
+            });
+        }
+
+        function setupEventListeners() {
+            // Search mode dropdown
+            searchModeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                searchModeBtn.classList.toggle('active');
+                searchModeMenu.classList.toggle('active');
             });
 
-        svg.call(zoom).on("dblclick.zoom", null);
+            // Close dropdown when clicking outside
+            document.addEventListener('click', () => {
+                searchModeBtn.classList.remove('active');
+                searchModeMenu.classList.remove('active');
+            });
 
-        // Simulation
-        const simulation = d3.forceSimulation()
-            .force("link", d3.forceLink().id(d => d.id).distance(50))
-            .force("charge", d3.forceManyBody().strength(-100))
-            .force("center", d3.forceCenter(width / 2, height / 2));
-
-        document.getElementById('applyYearFilter').addEventListener('click', () => {
-            const startYear = parseInt(document.getElementById('startYear').value) || 2020;
-            const endYear = parseInt(document.getElementById('endYear').value) || 2025;
-            updateVisualization(startYear, endYear);
-        });
-
-        updateVisualization(2020, 2025);
-
-        function updateVisualization(startYear, endYear) {
-            d3.select("#stats").text("Loading data...");
-
-            d3.json(`/api/coauthorship?startYear=${startYear}&endYear=${endYear}`)
-                .then(data => {
-                    currentData = data;
-                    updateGraph(data);
-                    updateStats(data);
+            // Search mode options
+            document.querySelectorAll('.search-mode-option').forEach(option => {
+                option.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    updateSearchMode(option.dataset.mode);
+                    searchModeBtn.classList.remove('active');
+                    searchModeMenu.classList.remove('active');
                 });
-        }
-
-        function updateStats(data) {
-            d3.select("#stats").text(`${data.nodes.length} authors, ${data.edges.length} collaborations`);
-        }
-
-        function updateGraph(data) {
-            const maxPub = d3.max(data.nodes, d => d.publications) || 1;
-            const maxWeight = d3.max(data.edges, d => d.weight) || 1;
-
-            nodeSizeScale.domain([1, maxPub]);
-            edgeWidthScale.domain([1, maxWeight]);
-
-            const link = zoomContainer.selectAll(".link")
-                .data(data.edges, d => `${d.source}-${d.target}`)
-                .join("line")
-                .attr("class", "link");
-
-            const node = zoomContainer.selectAll(".node")
-                .data(data.nodes, d => d.id)
-                .join("circle")
-                .attr("class", "node")
-                .attr("r", d => nodeSizeScale(d.publications) / currentTransform.k)
-                .style("fill", "#69b3a2")
-                .call(d3.drag()
-                    .on("start", dragstarted)
-                    .on("drag", dragged)
-                    .on("end", dragended))
-                .on("mouseover", showTooltip)
-                .on("mouseout", hideTooltip)
-                .on("click", focusNeighborhood);
-
-            simulation.nodes(data.nodes).on("tick", () => {
-                link
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
-
-                node
-                    .attr("cx", d => d.x)
-                    .attr("cy", d => d.y);
             });
 
-            simulation.force("link").links(data.edges);
-            simulation.alpha(1).restart();
-        }
-
-        function focusNeighborhood(event, d) {
-            const neighbors = new Set();
-
-            currentData.edges.forEach(e => {
-                if (e.source.id === d.id) neighbors.add(e.target.id);
-                if (e.target.id === d.id) neighbors.add(e.source.id);
+            // Search: submit via the Search button or Enter
+            searchForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                searchQuery = searchInput.value.trim();
+                runSearch();
             });
 
-            zoomContainer.selectAll(".node")
-                .style("opacity", n => (n.id === d.id || neighbors.has(n.id)) ? 1 : 0.1);
+            searchInput.addEventListener('input', () => {
+                searchClearBtn.hidden = searchInput.value.length === 0;
+            });
 
-            zoomContainer.selectAll(".link")
-                .style("opacity", l =>
-                    (l.source.id === d.id || l.target.id === d.id) ? 1 : 0.05
-                );
+            searchClearBtn.addEventListener('click', () => {
+                searchInput.value = '';
+                searchClearBtn.hidden = true;
+                searchInput.focus();
+                if (searchQuery) {
+                    searchQuery = '';
+                    runSearch();
+                }
+            });
+
+            // Filter chips: an applied chip clears its filter; otherwise the chip toggles its popover
+            document.querySelectorAll('.filter-chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    const filter = chip.dataset.filter;
+                    if (chip.classList.contains('active')) {
+                        hidePopovers();
+                        clearFilter(filter);
+                        return;
+                    }
+
+                    const popover = popovers[filter];
+                    const wasOpen = popover.style.display !== 'none';
+                    hidePopovers();
+                    if (wasOpen) return;
+
+                    if (filter === 'year') {
+                        yearFromInput.value = yearFilter.from;
+                        yearToInput.value = yearFilter.to;
+                    } else if (filter === 'keywords') {
+                        selectedKeywords = [...appliedKeywords];
+                        keywordsSearchInput.value = '';
+                        openKeywordsSelector();
+                    } else if (filter === 'instittutes') {
+                        selectedInstitutes = [...appliedInstitutes];
+                        institutesSearchInput.value = '';
+                        renderInstitutesSelector(UAEH_INSTITUTES);
+                    }
+                    popover.style.display = 'block';
+                });
+            });
+
+            // Year range selector buttons ("Back" closes without changing the applied filter)
+            yearBackBtn.addEventListener('click', () => {
+                yearRangeSelector.style.display = 'none';
+            });
+
+            yearApplyBtn.addEventListener('click', () => {
+                const range = readYearRange(yearFromInput, yearToInput);
+                if (!range) return;
+                yearRangeSelector.style.display = 'none';
+                applyYearFilter(range.from, range.to);
+            });
+
+            // Keywords filter buttons
+            keywordsBackBtn.addEventListener('click', () => {
+                keywordsSelector.style.display = 'none';
+                selectedKeywords = [...appliedKeywords];
+            });
+
+            keywordsApplyBtn.addEventListener('click', () => {
+                keywordsSelector.style.display = 'none';
+                appliedKeywords = [...selectedKeywords];
+                updateChipState(keywordsChip, 'Keywords', appliedKeywords.length);
+                runSearch();
+            });
+
+            keywordsSearchInput.addEventListener('input', debounce((e) => {
+                filterCheckboxList(keywordsList, e.target.value);
+            }, 200));
+
+            keywordsList.addEventListener('change', (e) => {
+                if (e.target.matches('.keyword-checkbox')) {
+                    selectedKeywords = toggleValue(selectedKeywords, e.target.value, e.target.checked);
+                }
+            });
+
+            // Institutes filter buttons
+            institutesBackBtn.addEventListener('click', () => {
+                institutesSelector.style.display = 'none';
+                selectedInstitutes = [...appliedInstitutes];
+            });
+
+            institutesApplyBtn.addEventListener('click', () => {
+                institutesSelector.style.display = 'none';
+                appliedInstitutes = [...selectedInstitutes];
+                updateChipState(institutesChip, 'Institutes', appliedInstitutes.length);
+                runSearch();
+            });
+
+            institutesSearchInput.addEventListener('input', debounce((e) => {
+                filterCheckboxList(institutesList, e.target.value);
+            }, 200));
+
+            institutesList.addEventListener('change', (e) => {
+                if (e.target.matches('.institute-checkbox')) {
+                    selectedInstitutes = toggleValue(selectedInstitutes, e.target.value, e.target.checked);
+                }
+            });
+
+            // Analytics year range selector buttons
+            analyticsYearBackBtn.addEventListener('click', () => {
+                analyticsYearRangeSelector.style.display = 'none';
+            });
+
+            analyticsYearApplyBtn.addEventListener('click', () => {
+                const range = readYearRange(analyticsYearFromInput, analyticsYearToInput);
+                if (!range) return;
+                analyticsYearRangeSelector.style.display = 'none';
+                applyYearFilter(range.from, range.to);
+            });
+
+            // Result actions (delegated so re-rendered cards need no inline handlers).
+            // "View works" is a plain link to /author/<orcid>, so it needs no handler.
+            resultsList.addEventListener('click', (e) => {
+                const workBtn = e.target.closest('[data-doi]');
+                if (workBtn) {
+                    viewPublicationInfo(workBtn.dataset.doi);
+                }
+            });
+
+            // Pagination buttons
+            paginationPrev.addEventListener('click', () => {
+                if (paginationState.currentPage > 1 && !paginationState.isLoading) {
+                    fetchResults(paginationState.currentPage - 1);
+                }
+            });
+
+            paginationNext.addEventListener('click', () => {
+                if (paginationState.hasNext && !paginationState.isLoading) {
+                    fetchResults(paginationState.currentPage + 1);
+                }
+            });
         }
 
-        function showTooltip(event, d) {
-            tooltip.style("opacity", 1)
-                .html(`ORCID: ${d.id}<br>Publications: ${d.publications}`)
-                .style("left", (event.pageX + 10) + "px")
-                .style("top", (event.pageY - 10) + "px");
+        function updateSearchMode(mode) {
+            currentSearchMode = mode;
+
+            document.querySelectorAll('.search-mode-option').forEach(opt => {
+                opt.classList.toggle('selected', opt.dataset.mode === mode);
+            });
+            searchModeLabel.textContent = mode;
+            searchInput.placeholder = PLACEHOLDERS[mode];
+
+            // Year and keyword filters only apply to works
+            const worksOnly = mode !== 'works';
+            yearChip.style.display = worksOnly ? 'none' : 'flex';
+            keywordsChip.style.display = worksOnly ? 'none' : 'flex';
+            institutesChip.style.display = 'flex';
+            if (worksOnly) {
+                yearRangeSelector.style.display = 'none';
+                keywordsSelector.style.display = 'none';
+            }
+
+            if (mode === 'authors') {
+                renderAuthorsAnalytics();
+            } else {
+                renderWorksAnalytics();
+            }
+
+            // Search the new mode with whatever is typed in the box
+            searchQuery = searchInput.value.trim();
+            runSearch();
         }
 
-        function hideTooltip() {
-            tooltip.style("opacity", 0);
+        function clearFilter(filter) {
+            if (filter === 'year') {
+                resetYearFilter();
+            } else if (filter === 'keywords') {
+                selectedKeywords = [];
+                appliedKeywords = [];
+                updateChipState(keywordsChip, 'Keywords', 0);
+                runSearch();
+            } else if (filter === 'instittutes') {
+                selectedInstitutes = [];
+                appliedInstitutes = [];
+                updateChipState(institutesChip, 'Institutes', 0);
+                runSearch();
+            }
         }
 
-        function dragstarted(event, d) {
-            event.sourceEvent.stopPropagation();
-            if (!event.active) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
+        function readYearRange(fromInput, toInput) {
+            const fromYear = parseInt(fromInput.value, 10);
+            const toYear = parseInt(toInput.value, 10);
+
+            if (!fromYear || !toYear) {
+                alert('Please enter both From and To years');
+                return null;
+            }
+            if (fromYear > toYear) {
+                alert('From year cannot be greater than To year');
+                return null;
+            }
+            return { from: fromYear, to: toYear };
         }
 
-        function dragged(event, d) {
-            d.fx = event.x;
-            d.fy = event.y;
+        function syncYearInputs() {
+            yearFromInput.value = yearFilter.from;
+            yearToInput.value = yearFilter.to;
+            analyticsYearFromInput.value = yearFilter.from;
+            analyticsYearToInput.value = yearFilter.to;
         }
 
-        function dragended(event, d) {
-            if (!event.active) simulation.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
+        function applyYearFilter(fromYear, toYear) {
+            yearFilter = { from: fromYear, to: toYear };
+            yearFilterActive = true;
+            syncYearInputs();
+            yearChip.classList.add('active');
+            yearChip.querySelector('span').textContent = `${fromYear} – ${toYear}`;
+            loadPublicationsByYear();
+            runSearch();
+        }
+
+        function resetYearFilter() {
+            yearFilter = { from: 1969, to: currentYear };
+            yearFilterActive = false;
+            syncYearInputs();
+            yearChip.classList.remove('active');
+            yearChip.querySelector('span').textContent = 'Year';
+            loadPublicationsByYear();
+            runSearch();
+        }
+
+        /** Show a chip as applied ("Keywords · 3") or reset it to its plain label. */
+        function updateChipState(chip, label, count) {
+            chip.classList.toggle('active', count > 0);
+            chip.querySelector('span').textContent = count > 0 ? `${label} · ${count}` : label;
+        }
+
+        function toggleValue(list, value, checked) {
+            const without = list.filter(item => item !== value);
+            return checked ? [...without, value] : without;
+        }
+
+        function renderCheckboxList(container, prefix, values, selected) {
+            container.innerHTML = values.map(value => `
+                <div class="${prefix}-item">
+                    <label class="${prefix}-checkbox-label">
+                        <input type="checkbox" class="${prefix}-checkbox" value="${escapeHtml(value)}" ${selected.includes(value) ? 'checked' : ''}>
+                        <span class="${prefix}-checkbox-custom"></span>
+                        <span class="${prefix}-label">${escapeHtml(value)}</span>
+                    </label>
+                </div>
+            `).join('');
+        }
+
+        function filterCheckboxList(container, searchTerm) {
+            const term = searchTerm.trim().toLowerCase();
+            container.querySelectorAll('label').forEach(label => {
+                const matches = label.textContent.toLowerCase().includes(term);
+                label.parentElement.style.display = matches ? 'flex' : 'none';
+            });
+        }
+
+        async function openKeywordsSelector() {
+            if (keywordOptions) {
+                renderCheckboxList(keywordsList, 'keyword', keywordOptions, selectedKeywords);
+                return;
+            }
+
+            keywordsList.innerHTML = '<div class="status-text">Loading keywords…</div>';
+            try {
+                const response = await fetch('/api/keywords?limit=200');
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                keywordOptions = data.data.map(item => item.keyword);
+                renderCheckboxList(keywordsList, 'keyword', keywordOptions, selectedKeywords);
+                filterCheckboxList(keywordsList, keywordsSearchInput.value);
+            } catch (error) {
+                console.error('Error loading keywords:', error);
+                keywordsList.innerHTML = '<div class="status-text">Unable to load keywords.</div>';
+            }
+        }
+
+        function renderInstitutesSelector(institutes) {
+            renderCheckboxList(institutesList, 'institute', institutes, selectedInstitutes);
+        }
+
+        function formatWorkType(type) {
+            if (!type) return '';
+            const text = type.replace(/[-_]/g, ' ');
+            return text.charAt(0).toUpperCase() + text.slice(1);
+        }
+
+        function renderAuthorResults(authors) {
+            resultsList.innerHTML = authors.map((author, index) => {
+                const name = `${author.given_names || ''} ${author.family_names || ''}`.trim() || 'Unnamed researcher';
+                return `
+                <div class="result-card" style="animation-delay: ${index * 30}ms">
+                    <div class="result-card-header">
+                        <h3 class="result-card-title">${escapeHtml(name)}</h3>
+                        <div class="result-card-meta">
+                            <div class="meta-item">
+                                <span class="meta-icon">${ICONS.file}</span>
+                                <span>${Number(author.count || 0).toLocaleString()} publications</span>
+                            </div>
+                        </div>
+                        <div class="orcid-badge">ORCID: ${escapeHtml(author.orcid_id)}</div>
+                    </div>
+                    <a class="view-works-btn" href="/author/${encodeURIComponent(author.orcid_id)}">
+                        View Works
+                    </a>
+                </div>
+            `;
+            }).join('');
+        }
+
+        function renderWorkResults(works) {
+            resultsList.innerHTML = works.map((work, index) => {
+                const year = work.publication_year || 'N/A';
+                const type = formatWorkType(work.type);
+                const names = Array.isArray(work.contributors) ? work.contributors : [];
+                let contributors = names.slice(0, MAX_LISTED_CONTRIBUTORS).join(', ');
+                if (names.length > MAX_LISTED_CONTRIBUTORS) {
+                    contributors += ` +${names.length - MAX_LISTED_CONTRIBUTORS} more`;
+                }
+
+                return `
+                <div class="result-card" style="animation-delay: ${index * 30}ms">
+                    <div class="result-card-header">
+                        <h3 class="result-card-title">${escapeHtml(work.title || 'Untitled publication')}</h3>
+                        <div class="result-card-meta">
+                            <div class="meta-item">${escapeHtml(year)}</div>
+                            ${type ? `<div class="meta-item">${escapeHtml(type)}</div>` : ''}
+                        </div>
+                        ${work.journal_title ? `<div class="result-card-work">${escapeHtml(work.journal_title)}</div>` : ''}
+                        ${contributors ? `<div class="result-card-work">${escapeHtml(contributors)}</div>` : ''}
+                    </div>
+                    <button type="button" class="view-more-btn" data-doi="${escapeHtml(work.doi)}">
+                        View More
+                    </button>
+                </div>
+            `;
+            }).join('');
+        }
+
+        function renderAuthorsAnalytics() {
+            // Destroy existing charts
+            Object.values(charts).forEach(chart => chart.destroy());
+            charts = {};
+
+            analyticsPanel.innerHTML = `
+                <!-- Sub-Institutions Stats -->
+                <div class="analytics-card">
+                    <div class="analytics-card-header">
+                        <h3 class="analytics-card-title">Top Institutions</h3>
+                    </div>
+                    <div class="analytics-card-body">
+                        <ul class="stat-list">
+                            ${Object.entries(mockSubInstitutionStats)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5)
+                    .map(([name, count]) => {
+                        const maxCount = Math.max(...Object.values(mockSubInstitutionStats));
+                        const percentage = (count / maxCount) * 100;
+                        return `
+                                        <li class="stat-item">
+                                            <div style="flex: 1;">
+                                                <div class="stat-label">${name}</div>
+                                                <div class="stat-bar">
+                                                    <div class="stat-bar-fill" style="width: ${percentage}%"></div>
+                                                </div>
+                                            </div>
+                                            <div class="stat-value">${count}</div>
+                                        </li>
+                                    `;
+                    })
+                    .join('')}
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Authors Distribution Pie Chart -->
+                <div class="analytics-card">
+                    <div class="analytics-card-header">
+                        <h3 class="analytics-card-title">Authors by Sub-Institution</h3>
+                    </div>
+                    <div class="analytics-card-body">
+                        <div class="chart-container">
+                            <canvas id="authorsDistributionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Render pie chart
+            setTimeout(() => {
+                const ctx = document.getElementById('authorsDistributionChart');
+                if (ctx) {
+                    // A quick mode switch can queue this twice for the same canvas
+                    Chart.getChart(ctx)?.destroy();
+                    charts.authorsDistribution = new Chart(ctx, {
+                        type: 'pie',
+                        data: {
+                            labels: Object.keys(mockSubInstitutionStats),
+                            datasets: [{
+                                data: Object.values(mockSubInstitutionStats),
+                                backgroundColor: CHART_COLORS,
+                                borderWidth: 2,
+                                borderColor: '#ffffff'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom',
+                                    labels: {
+                                        padding: 15,
+                                        font: { size: 12 }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }, 100);
+        }
+
+        function renderWorksAnalytics() {
+            // Destroy existing charts
+            Object.values(charts).forEach(chart => chart.destroy());
+            charts = {};
+
+            analyticsPanel.innerHTML = `
+                <!-- Publications by Year -->
+                <div class="analytics-card">
+                    <div class="analytics-card-header">
+                        <div>
+                            <h3 class="analytics-card-title">Publications by Year</h3>
+                            <div class="analytics-card-subtitle" id="publicationsByYearSubtitle">${yearFilter.from} - ${yearFilter.to}</div>
+                        </div>
+                        <button class="analytics-card-action" id="analyticsFilterBtn" type="button" aria-label="Filter publications by year">
+                            ${ICONS.filter}
+                        </button>
+                    </div>
+                    <div class="analytics-card-body">
+                        <div class="chart-container">
+                            <canvas id="publicationsByYearChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Publication Types -->
+                <div class="analytics-card">
+                    <div class="analytics-card-header">
+                        <h3 class="analytics-card-title">Publication Types</h3>
+                    </div>
+                    <div class="analytics-card-body">
+                        <div class="chart-container">
+                            <canvas id="publicationTypesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Top Topics -->
+                <div class="analytics-card">
+                    <div class="analytics-card-header">
+                        <h3 class="analytics-card-title">Top Research Topics</h3>
+                    </div>
+                    <div class="analytics-card-body">
+                        <ul class="stat-list">
+                            <li class="stat-item">
+                                <div style="flex: 1;">
+                                    <div class="stat-label">Machine Learning</div>
+                                    <div class="stat-bar">
+                                        <div class="stat-bar-fill" style="width: 100%"></div>
+                                    </div>
+                                </div>
+                                <div class="stat-value">234</div>
+                            </li>
+                            <li class="stat-item">
+                                <div style="flex: 1;">
+                                    <div class="stat-label">Quantum Computing</div>
+                                    <div class="stat-bar">
+                                        <div class="stat-bar-fill" style="width: 85%"></div>
+                                    </div>
+                                </div>
+                                <div class="stat-value">198</div>
+                            </li>
+                            <li class="stat-item">
+                                <div style="flex: 1;">
+                                    <div class="stat-label">Climate Science</div>
+                                    <div class="stat-bar">
+                                        <div class="stat-bar-fill" style="width: 75%"></div>
+                                    </div>
+                                </div>
+                                <div class="stat-value">176</div>
+                            </li>
+                            <li class="stat-item">
+                                <div style="flex: 1;">
+                                    <div class="stat-label">Biomedical Engineering</div>
+                                    <div class="stat-bar">
+                                        <div class="stat-bar-fill" style="width: 65%"></div>
+                                    </div>
+                                </div>
+                                <div class="stat-value">152</div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+
+            // Setup filter button on analytics card
+            const filterButton = document.getElementById('analyticsFilterBtn');
+            if (filterButton) {
+                filterButton.addEventListener('click', () => {
+                    analyticsYearRangeSelector.style.display = 'block';
+                    analyticsYearFromInput.value = yearFilter.from;
+                    analyticsYearToInput.value = yearFilter.to;
+                });
+            }
+
+            loadPublicationsByYear();
+
+            // Render publication type doughnut chart after the annual chart is created
+            setTimeout(() => {
+                const typeCtx = document.getElementById('publicationTypesChart');
+                if (typeCtx) {
+                    Chart.getChart(typeCtx)?.destroy();
+                    charts.publicationTypes = new Chart(typeCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: Object.keys(mockPublicationTypes),
+                            datasets: [{
+                                data: Object.values(mockPublicationTypes),
+                                backgroundColor: CHART_COLORS,
+                                borderWidth: 2,
+                                borderColor: '#ffffff'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom',
+                                    labels: {
+                                        padding: 15,
+                                        font: { size: 12 }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }, 100);
+        }
+
+        async function loadPublicationsByYear() {
+            const subtitle = document.getElementById('publicationsByYearSubtitle');
+            if (subtitle) {
+                subtitle.textContent = `${yearFilter.from} - ${yearFilter.to}`;
+            }
+
+            try {
+                const queryParams = new URLSearchParams({
+                    start_year: yearFilter.from,
+                    end_year: yearFilter.to
+                });
+                const response = await fetch(`/api/publications-per-year?${queryParams.toString()}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to load analytics');
+                }
+
+                const series = Array.isArray(data.data) ? data.data : [];
+                renderPublicationsByYearChart(series);
+            } catch (error) {
+                console.error('Error loading publications by year:', error);
+                const chartContainer = document.getElementById('publicationsByYearChart')?.parentElement;
+                if (chartContainer) {
+                    chartContainer.innerHTML = emptyState('alert', 'Unable to load publications by year.');
+                }
+            }
+        }
+
+        function renderPublicationsByYearChart(series) {
+            const yearCtx = document.getElementById('publicationsByYearChart');
+            if (!yearCtx) {
+                return;
+            }
+
+            const labels = series.map(item => item.year);
+            const values = series.map(item => item.count);
+
+            if (charts.publicationsByYear) {
+                charts.publicationsByYear.destroy();
+            }
+
+            Chart.getChart(yearCtx)?.destroy();
+            charts.publicationsByYear = new Chart(yearCtx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Publications',
+                        data: values,
+                        backgroundColor: CHART_PRIMARY,
+                        borderRadius: 4,
+                        borderSkipped: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#e2e8f0'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Utility functions
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        function viewPublicationInfo(doi) {
+            // This will be connected to backend
+            console.log('View more info on this publication:', doi);
+            alert(`This will show more info for work with doi: ${doi}\n\nTo be connected to backend`);
         }
     </script>
 </body>

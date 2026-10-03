@@ -5,7 +5,7 @@ This module provides the main interface for computing co-authorship networks
 from MongoDB works collection using an object-oriented approach.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import logging
 
 from src.coauthorship.network_builder import MongoDBNetworkExtractor
@@ -32,9 +32,19 @@ class CoauthorshipAggregator:
         self.db = db
         self.extractor = MongoDBNetworkExtractor(db)
     
-    def get_network_data(self, start_year: int, end_year: int) -> Dict[str, Any]:
+    def get_network_data(
+        self,
+        start_year: int,
+        end_year: int,
+        types: Optional[List[str]] = None,
+        subjects: Optional[List[str]] = None,
+        keywords: Optional[List[str]] = None,
+        institutes: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
-        Compute co-authorship network data for a given year range.
+        Compute co-authorship network data for a given year range and optional
+        filters (work types, subjects, keywords, institutes; each matches any of
+        the given values).
         
         This method:
         1. Queries MongoDB for publications in the year range
@@ -77,7 +87,10 @@ class CoauthorshipAggregator:
             logger.info(f"Starting co-authorship aggregation for {start_year}-{end_year}")
             
             # Extract network using the builder
-            network = self.extractor.extract_network(start_year, end_year)
+            network = self.extractor.extract_network(
+                start_year, end_year, types=types, subjects=subjects,
+                keywords=keywords, institutes=institutes
+            )
             
             # Get statistics for logging
             stats = network.get_stats()

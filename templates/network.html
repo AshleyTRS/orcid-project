@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Co-authorship Network - UAEH Researchers Network</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="/static/styles/main.css">
+    <script src="/static/js/uaeh-institutes.js"></script>
+</head>
+
+<body>
+    {% include '_header.html' %}
+
+    <main class="container">
+        <div class="page-header">
+            <h1 class="page-title">Co-authorship network</h1>
+            <p class="page-subtitle">How researchers collaborate across publications. Node size reflects publication count.</p>
+        </div>
+
+        <section class="card">
+            <form class="network-filters" id="networkForm">
+                <div class="filter-grid" id="filterGrid">
+                    <div class="year-fields">
+                        <div class="field">
+                            <label class="field-label" for="startYear">Start year</label>
+                            <input class="input" id="startYear" type="number" value="2020" min="1900" max="2100"
+                                required>
+                        </div>
+                        <div class="field">
+                            <label class="field-label" for="endYear">End year</label>
+                            <input class="input" id="endYear" type="number" min="1900" max="2100" required>
+                        </div>
+                    </div>
+                    <!-- Multi-select filters are inserted here by script -->
+                </div>
+                <div class="filter-actions">
+                    <button type="submit" class="btn btn-primary" id="generateBtn">Generate network</button>
+                    <button type="button" class="btn btn-secondary" id="resetBtn">Reset filters</button>
+                    <div class="status-text" id="stats" role="status"></div>
+                </div>
+            </form>
+
+            <div class="network-canvas-wrap" id="networkWrap">
+                <canvas id="network-canvas"></canvas>
+                <div class="network-placeholder" id="networkPlaceholder">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <circle cx="6" cy="6" r="2.5" />
+                                <circle cx="18" cy="8" r="2.5" />
+                                <circle cx="10" cy="18" r="2.5" />
+                                <path d="M8.3 7 15.6 7.6M7 8.3 9.1 15.6M16.4 10 11.8 16.2" />
+                            </svg>
+                        </div>
+                        <div class="empty-state-text" id="placeholderText">
+                            Choose filters and click <strong>Generate network</strong> to build the graph.
+                            Narrower filters build faster and are easier to read.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <p class="network-hint">Scroll to zoom, drag to pan or move a node, and click a node to highlight its co-authors.</p>
+        </section>
+    </main>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // Rendering is done on a single <canvas> instead of one SVG element per
+        // node/edge: each frame is a handful of batched draw calls, so large
+        // networks no longer force the browser to restyle and re-layout
+        // thousands of DOM elements on every simulation tick or zoom event.
+        // The canvas is sized once to fit its container (capped at 1200px wide).
+        const wrap = document.getElementById("networkWrap");
+        const width = Math.max(320, Math.min(1200, wrap.clientWidth));
+        const height = Math.round(Math.min(640, Math.max(400, width * 0.6)));
+
+        const NODE_COLOR = "#2563eb";
+        const NODE_HOVER_STROKE = "#172554";
+        const LINK_COLOR = "#94a3b8";
+        const LINK_OPACITY = 0.6;
+
+        const canvas = document.getElementById("network-canvas");
+        const context = canvas.getContext("2d");
+        const tooltip = d3.select("#tooltip");
+
+        // HiDPI support: back the canvas with device pixels, draw in CSS pixels
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+
+        // Scales
+        const nodeSizeScale = d3.scaleSqrt().range([5, 20]);
+        const edgeWidthScale = d3.scaleLinear().range([1, 5]);
+
+        let currentTransform = d3.zoomIdentity;
+        let nodes = [];
+        let links = [];
+        let linkBuckets = [];          // links grouped by stroke width -> one lineWidth change per group
+        let maxRadius = 0;
+        let adjacency = new Map();     // node id -> { neighbors: Set<id>, links: [] }
+        let focusedNode = null;
+        let hoveredNode = null;
+        let quadtree = null;           // spatial index for hit testing, rebuilt lazily
+        let requestId = 0;
+
+        // Draw at most once per animation frame, no matter how many
+        // tick / zoom / hover events arrive in between.
+        let drawPending = false;
+        function requestDraw() {
+            if (drawPending) return;
+            drawPending = true;
+            requestAnimationFrame(() => {
+                drawPending = false;
+                draw();
+            });
+        }
+
+        // Simulation
+        const simulation = d3.forceSimulation()
+            .force("link", d3.forceLink().id(d => d.id).distance(50))
+            // theta/distanceMax bound the Barnes-Hut cost per tick
+            .force("charge", d3.forceManyBody().strength(-100).theta(0.9).distanceMax(400))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .alphaDecay(0.04)
+            .on("tick", () => {
+                quadtree = null;
+                requestDraw();
+            });
+
+        // Zoom behavior: only updates the transform and schedules a redraw
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 10])
+            .on("zoom", (event) => {
+                currentTransform = event.transform;
+                requestDraw();
+            });
+
+        // Drag is registered before zoom so that pressing on a node drags it,
+        // while pressing on empty space falls through to panning.
+        d3.select(canvas)
+            .call(d3.drag()
+                .container(canvas)
+                .subject(dragSubject)
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended))
+            .call(zoom)
+            .on("dblclick.zoom", null)
+            .on("mousemove", onMouseMove)
+            .on("mouseleave", () => setHovered(null))
+            .on("click", onClick);
+
+        // ---- Filters ------------------------------------------------------
+        // Nothing is fetched on page load: the graph is only built when the
+        // user clicks "Generate network". Option lists load when a dropdown
+        // is first opened.
+
+        const DEFAULT_START_YEAR = 2020;
+        const CURRENT_YEAR = new Date().getFullYear();
+
+        const formatType = type => {
+            const text = type.replace(/[-_]/g, ' ');
+            return text.charAt(0).toUpperCase() + text.slice(1);
+        };
+
+        // name = API query parameter; load() resolves to [{ value, label, count? }]
+        const FILTERS = [
+            {
+                name: 'type', label: 'Publication type',
+                load: () => fetchOptions('/api/work-types', item => ({ value: item.value, label: formatType(item.value), count: item.count }))
+            },
+            {
+                name: 'subject', label: 'Subject',
+                load: () => fetchOptions('/api/subjects', item => ({ value: item.value, label: item.value, count: item.count }))
+            },
+            {
+                name: 'keyword', label: 'Keywords',
+                load: () => fetchOptions('/api/keywords?limit=200', item => ({ value: item.keyword, label: item.keyword, count: item.count }))
+            },
+            {
+                name: 'institute', label: 'Sub-institution',
+                load: () => Promise.resolve(window.UAEH_INSTITUTES.map(name => ({ value: name, label: name })))
+            }
+        ];
+
+        const form = document.getElementById('networkForm');
+        const filterGrid = document.getElementById('filterGrid');
+        const startYearInput = document.getElementById('startYear');
+        const endYearInput = document.getElementById('endYear');
+        const generateBtn = document.getElementById('generateBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const statsEl = document.getElementById('stats');
+        const placeholder = document.getElementById('networkPlaceholder');
+        const placeholderText = document.getElementById('placeholderText');
+
+        // name -> { config, selected: Set, options, root, trigger, panel, list, search }
+        const multiselects = new Map();
+        let lastGeneratedQuery = null;
+
+        endYearInput.value = CURRENT_YEAR;
+        FILTERS.forEach(config => multiselects.set(config.name, createMultiselect(config)));
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        async function fetchOptions(url, toOption) {
+            const response = await fetch(url);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+            return data.data.map(toOption);
+        }
+
+        function createMultiselect(config) {
+            const id = `ms-${config.name}`;
+            const root = document.createElement('div');
+            root.className = 'multiselect';
+            root.innerHTML = `
+                <span class="field-label" id="${id}-label">${config.label}</span>
+                <button type="button" class="multiselect-trigger" aria-haspopup="true" aria-expanded="false"
+                    aria-labelledby="${id}-label ${id}-value">
+                    <span class="multiselect-value" id="${id}-value">Any</span>
+                </button>
+                <div class="multiselect-panel" hidden>
+                    <input type="search" class="input multiselect-search" placeholder="Filter ${config.label.toLowerCase()}..."
+                        aria-label="Filter ${config.label.toLowerCase()} options">
+                    <div class="multiselect-options" role="group" aria-labelledby="${id}-label"></div>
+                    <div class="multiselect-footer">
+                        <button type="button" class="btn btn-secondary" data-action="clear">Clear</button>
+                        <button type="button" class="btn btn-primary" data-action="done">Done</button>
+                    </div>
+                </div>
+            `;
+            filterGrid.appendChild(root);
+
+            const state = {
+                config,
+                selected: new Set(),
+                options: null,
+                root,
+                trigger: root.querySelector('.multiselect-trigger'),
+                panel: root.querySelector('.multiselect-panel'),
+                list: root.querySelector('.multiselect-options'),
+                search: root.querySelector('.multiselect-search')
+            };
+
+            state.trigger.addEventListener('click', () => {
+                if (state.panel.hidden) {
+                    openMultiselect(state);
+                } else {
+                    closeMultiselect(state);
+                }
+            });
+
+            state.list.addEventListener('change', (e) => {
+                if (!e.target.matches('.option-checkbox')) return;
+                if (e.target.checked) {
+                    state.selected.add(e.target.value);
+                } else {
+                    state.selected.delete(e.target.value);
+                }
+                updateMultiselectLabel(state);
+                updateDirtyState();
+            });
+
+            // Enter in the option filter box must not submit the whole form
+            state.search.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') e.preventDefault();
+            });
+
+            state.search.addEventListener('input', () => {
+                const term = state.search.value.trim().toLowerCase();
+                state.list.querySelectorAll('.option-label').forEach(label => {
+                    label.hidden = !label.dataset.search.includes(term);
+                });
+            });
+
+            root.querySelector('[data-action="clear"]').addEventListener('click', () => {
+                state.selected.clear();
+                state.list.querySelectorAll('.option-checkbox').forEach(box => { box.checked = false; });
+                updateMultiselectLabel(state);
+                updateDirtyState();
+            });
+
+            root.querySelector('[data-action="done"]').addEventListener('click', () => {
+                closeMultiselect(state);
+                state.trigger.focus();
+            });
+
+            return state;
+        }
+
+        async function openMultiselect(state) {
+            multiselects.forEach(other => { if (other !== state) closeMultiselect(other); });
+            state.panel.hidden = false;
+            state.trigger.setAttribute('aria-expanded', 'true');
+            state.search.value = '';
+
+            if (!state.options) {
+                state.list.innerHTML = '<div class="status-text">Loading options…</div>';
+                try {
+                    state.options = await state.config.load();
+                } catch (error) {
+                    console.error(`Error loading ${state.config.name} options:`, error);
+                    state.list.innerHTML = '<div class="status-text">Unable to load options. Close and try again.</div>';
+                    return;
+                }
+            }
+            renderOptions(state);
+            // The search box is only worth showing for long lists
+            state.search.hidden = state.options.length <= 10;
+            (state.search.hidden ? state.list.querySelector('input') : state.search)?.focus();
+        }
+
+        function closeMultiselect(state) {
+            state.panel.hidden = true;
+            state.trigger.setAttribute('aria-expanded', 'false');
+        }
+
+        function renderOptions(state) {
+            state.list.innerHTML = state.options.map(option => `
+                <label class="option-label" data-search="${escapeHtml(option.label.toLowerCase())}">
+                    <input type="checkbox" class="option-checkbox" value="${escapeHtml(option.value)}"
+                        ${state.selected.has(option.value) ? 'checked' : ''}>
+                    <span class="option-checkbox-custom"></span>
+                    <span class="option-text">${escapeHtml(option.label)}</span>
+                    ${option.count != null ? `<span class="option-count">${option.count.toLocaleString()}</span>` : ''}
+                </label>
+            `).join('');
+        }
+
+        function updateMultiselectLabel(state) {
+            const values = [...state.selected];
+            const labelFor = value => state.options?.find(o => o.value === value)?.label ?? value;
+            const valueEl = state.trigger.querySelector('.multiselect-value');
+            valueEl.textContent = values.length === 0 ? 'Any'
+                : values.length === 1 ? labelFor(values[0])
+                    : `${values.length} selected`;
+            state.root.classList.toggle('has-value', values.length > 0);
+        }
+
+        // Close dropdowns on outside click or Escape
+        document.addEventListener('click', (e) => {
+            multiselects.forEach(state => {
+                if (!state.root.contains(e.target)) closeMultiselect(state);
+            });
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            multiselects.forEach(state => {
+                if (!state.panel.hidden) {
+                    closeMultiselect(state);
+                    state.trigger.focus();
+                }
+            });
+        });
+
+        /** Returns { query } for the current filters, or { error } if the year range is invalid. */
+        function buildQuery() {
+            const startYear = parseInt(startYearInput.value, 10);
+            const endYear = parseInt(endYearInput.value, 10);
+            if (!startYear || !endYear) {
+                return { error: 'Enter both a start and an end year.' };
+            }
+            if (startYear > endYear) {
+                return { error: 'Start year cannot be after end year.' };
+            }
+            const params = new URLSearchParams({ startYear, endYear });
+            multiselects.forEach((state, name) => {
+                state.selected.forEach(value => params.append(name, value));
+            });
+            return { query: params.toString() };
+        }
+
+        // Remind the user to regenerate when filters no longer match the graph
+        function updateDirtyState() {
+            if (lastGeneratedQuery === null) return;
+            const { query } = buildQuery();
+            if (query !== lastGeneratedQuery) {
+                statsEl.textContent = 'Filters changed — click Generate network to update the graph.';
+            } else {
+                statsEl.textContent = statsEl.dataset.summary || '';
+            }
+        }
+
+        startYearInput.addEventListener('input', updateDirtyState);
+        endYearInput.addEventListener('input', updateDirtyState);
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            multiselects.forEach(closeMultiselect);
+            generateNetwork();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            startYearInput.value = DEFAULT_START_YEAR;
+            endYearInput.value = CURRENT_YEAR;
+            multiselects.forEach(state => {
+                state.selected.clear();
+                state.list.querySelectorAll('.option-checkbox').forEach(box => { box.checked = false; });
+                updateMultiselectLabel(state);
+            });
+            updateDirtyState();
+        });
+
+        function showPlaceholder(html) {
+            placeholderText.innerHTML = html;
+            placeholder.hidden = false;
+        }
+
+        function setGenerating(isGenerating) {
+            generateBtn.disabled = isGenerating;
+            generateBtn.textContent = isGenerating ? 'Generating…' : 'Generate network';
+            wrap.classList.toggle('is-loading', isGenerating);
+        }
+
+        async function generateNetwork() {
+            const { query, error } = buildQuery();
+            if (error) {
+                statsEl.textContent = error;
+                return;
+            }
+
+            const thisRequest = ++requestId;
+            setGenerating(true);
+            statsEl.textContent = 'Building network…';
+
+            try {
+                const response = await fetch(`/api/coauthorship?${query}`);
+                const data = await response.json().catch(() => ({}));
+                // Ignore responses that arrive after a newer request was made
+                if (thisRequest !== requestId) return;
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+
+                lastGeneratedQuery = query;
+                // Start each new graph from an un-zoomed view
+                d3.select(canvas).call(zoom.transform, d3.zoomIdentity);
+                updateGraph(data);
+                const summary = `${data.nodes.length.toLocaleString()} authors · ${data.edges.length.toLocaleString()} collaborations`;
+                statsEl.dataset.summary = summary;
+                statsEl.textContent = summary;
+
+                if (data.nodes.length === 0) {
+                    showPlaceholder('No co-authorships match these filters. Try a wider year range or fewer filters.');
+                } else {
+                    placeholder.hidden = true;
+                }
+            } catch (err) {
+                if (thisRequest !== requestId) return;
+                console.error('Error building network:', err);
+                statsEl.textContent = `Failed to build network: ${err.message}`;
+            } finally {
+                if (thisRequest === requestId) setGenerating(false);
+            }
+        }
+
+        function updateGraph(data) {
+            const maxPub = d3.max(data.nodes, d => d.publications) || 1;
+            const maxWeight = d3.max(data.edges, d => d.weight) || 1;
+
+            nodeSizeScale.domain([1, maxPub]);
+            edgeWidthScale.domain([1, maxWeight]);
+
+            // Keep positions of authors that were already on screen so a
+            // filter change refines the layout instead of starting from scratch.
+            const previous = new Map(nodes.map(n => [n.id, n]));
+            nodes = data.nodes;
+            links = data.edges;
+
+            maxRadius = 0;
+            for (const n of nodes) {
+                n.radius = nodeSizeScale(n.publications);
+                if (n.radius > maxRadius) maxRadius = n.radius;
+                const old = previous.get(n.id);
+                if (old) {
+                    n.x = old.x;
+                    n.y = old.y;
+                }
+            }
+
+            simulation.nodes(nodes);
+            simulation.force("link").links(links);  // resolves source/target ids to node objects
+
+            // Precompute adjacency for O(degree) neighbourhood lookups
+            adjacency = new Map(nodes.map(n => [n.id, { neighbors: new Set(), links: [] }]));
+            for (const l of links) {
+                adjacency.get(l.source.id).neighbors.add(l.target.id);
+                adjacency.get(l.target.id).neighbors.add(l.source.id);
+                adjacency.get(l.source.id).links.push(l);
+                adjacency.get(l.target.id).links.push(l);
+            }
+
+            // Group links by (rounded) stroke width to minimise canvas state changes
+            const buckets = d3.group(links, l => Math.round(edgeWidthScale(l.weight) * 2) / 2);
+            linkBuckets = Array.from(buckets, ([lineWidth, group]) => ({ lineWidth, links: group }));
+
+            focusedNode = null;
+            setHovered(null);
+            quadtree = null;
+
+            const reused = nodes.length > 0 && nodes.every(n => previous.has(n.id));
+            simulation.alpha(reused ? 0.3 : 1).restart();
+        }
+
+        // ---- Rendering ---------------------------------------------------
+
+        function draw() {
+            const k = currentTransform.k;
+
+            context.setTransform(dpr, 0, 0, dpr, 0, 0);
+            context.clearRect(0, 0, width, height);
+            context.translate(currentTransform.x, currentTransform.y);
+            context.scale(k, k);
+
+            // Visible area in simulation coordinates, used for culling
+            const [vx0, vy0] = currentTransform.invert([0, 0]);
+            const [vx1, vy1] = currentTransform.invert([width, height]);
+
+            // Links (widths divided by k to keep a constant on-screen size).
+            // Each link is stroked on its own: merging thousands of segments
+            // into one semi-transparent path makes the rasterizer treat it as
+            // a single huge self-overlapping shape, which measured ~10x slower.
+            context.strokeStyle = LINK_COLOR;
+            context.globalAlpha = focusedNode ? LINK_OPACITY * 0.05 : LINK_OPACITY;
+            for (const bucket of linkBuckets) {
+                context.lineWidth = bucket.lineWidth / k;
+                for (const l of bucket.links) {
+                    const s = l.source, t = l.target;
+                    if ((s.x < vx0 && t.x < vx0) || (s.x > vx1 && t.x > vx1) ||
+                        (s.y < vy0 && t.y < vy0) || (s.y > vy1 && t.y > vy1)) continue;
+                    context.beginPath();
+                    context.moveTo(s.x, s.y);
+                    context.lineTo(t.x, t.y);
+                    context.stroke();
+                }
+            }
+
+            if (focusedNode) {
+                context.globalAlpha = LINK_OPACITY;
+                for (const l of adjacency.get(focusedNode.id).links) {
+                    context.lineWidth = edgeWidthScale(l.weight) / k;
+                    context.beginPath();
+                    context.moveTo(l.source.x, l.source.y);
+                    context.lineTo(l.target.x, l.target.y);
+                    context.stroke();
+                }
+            }
+
+            // Nodes: all circles in one path, one fill() call
+            context.fillStyle = NODE_COLOR;
+            context.globalAlpha = focusedNode ? 0.1 : 1;
+            fillNodes(nodes, k, vx0, vy0, vx1, vy1);
+
+            if (focusedNode) {
+                const neighbors = adjacency.get(focusedNode.id).neighbors;
+                const highlighted = [focusedNode];
+                for (const n of nodes) if (neighbors.has(n.id)) highlighted.push(n);
+                context.globalAlpha = 1;
+                fillNodes(highlighted, k, vx0, vy0, vx1, vy1);
+            }
+
+            if (hoveredNode) {
+                context.globalAlpha = 1;
+                context.strokeStyle = NODE_HOVER_STROKE;
+                context.lineWidth = 2 / k;
+                context.beginPath();
+                context.arc(hoveredNode.x, hoveredNode.y, hoveredNode.radius / k, 0, 2 * Math.PI);
+                context.stroke();
+            }
+
+            context.globalAlpha = 1;
+        }
+
+        function fillNodes(list, k, vx0, vy0, vx1, vy1) {
+            context.beginPath();
+            for (const n of list) {
+                const r = n.radius / k;
+                if (n.x + r < vx0 || n.x - r > vx1 || n.y + r < vy0 || n.y - r > vy1) continue;
+                context.moveTo(n.x + r, n.y);
+                context.arc(n.x, n.y, r, 0, 2 * Math.PI);
+            }
+            context.fill();
+        }
+
+        // ---- Hit testing & interaction -----------------------------------
+
+        // Returns the node under the given canvas (screen) coordinates, if any
+        function findNode(screenX, screenY) {
+            if (!quadtree) {
+                quadtree = d3.quadtree(nodes, d => d.x, d => d.y);
+            }
+            const k = currentTransform.k;
+            const [x, y] = currentTransform.invert([screenX, screenY]);
+            const candidate = quadtree.find(x, y, maxRadius / k);
+            if (!candidate) return null;
+            const r = candidate.radius / k;
+            const dx = candidate.x - x, dy = candidate.y - y;
+            return dx * dx + dy * dy <= r * r ? candidate : null;
+        }
+
+        function setHovered(node, event) {
+            if (node === hoveredNode) {
+                if (node && event) moveTooltip(event);
+                return;
+            }
+            hoveredNode = node;
+            canvas.style.cursor = node ? "pointer" : "default";
+            if (node) {
+                tooltip.style("opacity", 1)
+                    .html(`ORCID: ${node.id}<br>Publications: ${node.publications}`);
+                if (event) moveTooltip(event);
+            } else {
+                tooltip.style("opacity", 0);
+            }
+            requestDraw();
+        }
+
+        function moveTooltip(event) {
+            tooltip
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        }
+
+        function onMouseMove(event) {
+            const [px, py] = d3.pointer(event, canvas);
+            setHovered(findNode(px, py), event);
+        }
+
+        // Clicking a node focuses its neighbourhood; clicking empty space clears it
+        function onClick(event) {
+            const [px, py] = d3.pointer(event, canvas);
+            focusedNode = findNode(px, py);
+            requestDraw();
+        }
+
+        // The drag subject is expressed in screen coordinates so event.x/y can
+        // be mapped back through the current zoom transform.
+        function dragSubject(event) {
+            const node = findNode(event.x, event.y);
+            if (!node) return null;
+            return {
+                node,
+                x: currentTransform.applyX(node.x),
+                y: currentTransform.applyY(node.y)
+            };
+        }
+
+        function dragstarted(event) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            const d = event.subject.node;
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event) {
+            const d = event.subject.node;
+            d.fx = currentTransform.invertX(event.x);
+            d.fy = currentTransform.invertY(event.y);
+        }
+
+        function dragended(event) {
+            if (!event.active) simulation.alphaTarget(0);
+            const d = event.subject.node;
+            d.fx = null;
+            d.fy = null;
+        }
+    </script>
+</body>
+
+</html>

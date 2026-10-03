@@ -106,10 +106,15 @@ class NetworkData:
     
     def get_stats(self) -> Dict:
         """Get network statistics."""
+        # Collect connected ids once so counting solo authors is O(nodes + edges)
+        connected = set()
+        for edge in self.edges:
+            connected.add(edge.source)
+            connected.add(edge.target)
         return {
             "total_nodes": len(self.nodes),
             "total_edges": len(self.edges),
             "total_collaborations": sum(edge.weight for edge in self.edges),
-            "solo_authors": sum(1 for node in self.nodes if node.publications > 0 and 
-                               not any(e.source == node.id or e.target == node.id for e in self.edges))
+            "solo_authors": sum(1 for node in self.nodes
+                                if node.publications > 0 and node.id not in connected)
         }
