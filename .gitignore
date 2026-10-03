@@ -50,3 +50,9 @@ instance/
 
 # Pycache and coverage
 .coverage
+
+# Claude Code: skills and local settings
+.claude/
+
+# MCP server configuration
+.mcp.json
