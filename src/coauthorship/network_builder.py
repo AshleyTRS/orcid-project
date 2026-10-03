@@ -22,14 +22,14 @@ class CoauthorshipNetworkBuilder:
     Builds co-authorship networks from MongoDB publication data.
     
     This class handles the core logic of:
-    1. Deduplicating publications by DOI
+    1. Deduplicating publications by work_key (DOI or matched title)
     2. Extracting all authors per publication
     3. Computing author productivity (publication counts)
     4. Computing collaboration edges with weights
     """
     
     def __init__(self):
-        self.publications: Dict[str, Publication] = {}
+        self.publications: Dict[str, Publication] = {}  # keyed by work_key
         self.author_publication_counts: Counter = Counter()
         self.collaboration_counts: Counter = Counter()
     
@@ -37,25 +37,26 @@ class CoauthorshipNetworkBuilder:
         """
         Process a single MongoDB document and add it to the network.
         
-        Since MongoDB may store one document per author per publication,
-        this method deduplicates by DOI and aggregates all authors.
+        MongoDB stores one document per author per publication, and an ORCID
+        record can list the same publication several times, so documents are
+        merged by work_key (see src/works/work_key.py) and their authors combined.
         
         Args:
-            document: MongoDB document with doi, orcid_id, and contributors
+            document: MongoDB document with work_key, doi, orcid_id, and contributors
         """
-        doi = document.get('doi')
+        work_key = document.get('work_key')
         orcid_id = document.get('orcid_id')
         year = document.get('publication_year')
         
-        if not doi:
-            logger.debug(f"Skipping document without DOI")
+        if not work_key:
+            logger.debug(f"Skipping document without work_key")
             return
         
         # Get or create publication
-        if doi not in self.publications:
-            self.publications[doi] = Publication(doi=doi, year=year)
+        if work_key not in self.publications:
+            self.publications[work_key] = Publication(doi=document.get('doi') or work_key, year=year)
         
-        publication = self.publications[doi]
+        publication = self.publications[work_key]
         
         # Add main author (from orcid_id field)
         if orcid_id:
@@ -193,6 +194,7 @@ class MongoDBNetworkExtractor:
                 "$project": {
                     "_id": 0,
                     "doi": 1,
+                    "work_key": 1,
                     "orcid_id": 1,
                     "publication_year": 1,
                     # Only contributor ORCID iDs are used; skipping names/tokens cuts transfer ~3x

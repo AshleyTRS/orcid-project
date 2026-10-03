@@ -13,6 +13,8 @@ class Work:
     external_ids: List[Dict]
     contributors: List[Dict] = field(default_factory=list)
     visibility: Optional[str] = None
+    # Identity shared by duplicate records of the same work (src/works/work_key.py)
+    work_key: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -24,5 +26,6 @@ class Work:
             "type": self.work_type,
             "external_ids": self.external_ids,
             "contributors": self.contributors,
-            "visibility": self.visibility
+            "visibility": self.visibility,
+            "work_key": self.work_key
         }
