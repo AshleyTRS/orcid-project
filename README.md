@@ -1,419 +1,341 @@
-# Scholarly Data Harvesting and Enrichment System
+# UAEH Researchers Network: Scholarly Data Harvesting, Enrichment and Analysis
 
 ## Overview
 
-This project implements a multi-stage API-based system for the retrieval, processing, enrichment, and storage of researcher information and scholarly publications. The system operates in two primary stages:
+This project implements an API-based system for the retrieval, enrichment, storage and analysis of researcher profiles and scholarly publications associated with the Universidad Autónoma del Estado de Hidalgo (UAEH). The system operates in four stages:
 
-1. **Data Harvesting**: Retrieves researcher profiles and associated scholarly works from the ORCID platform.
-2. **Metadata Enrichment**: Augments harvested works with comprehensive metadata from the OpenAlex API.
+1. **Harvesting.** Researcher profiles and their scholarly works are retrieved from the ORCID public API.
+2. **Enrichment.** Works that carry a DOI are enriched with metadata from the OpenAlex API (topics, concepts, keywords and open-access status).
+3. **Preparation.** A sequence of schema migrations transforms the raw records into an analysis-ready dataset, including the identification of duplicate records that describe the same publication.
+4. **Analysis and presentation.** MongoDB aggregation pipelines compute publication statistics, and a Flask web application presents researcher search, individual author profiles and an interactive co-authorship network.
 
-The system is designed following a modular architecture that separates query management, data retrieval, parsing, normalization, and persistence. Its primary objective is to provide a structured and reproducible workflow for collecting and enriching ORCID-related data while respecting API constraints and good software engineering practices.
+The architecture separates query management, retrieval, parsing, normalization, persistence and presentation into independent modules. The objective is a structured and reproducible workflow for collecting and analysing institution-level scholarly output while respecting the usage policies of the external APIs.
 
-The project is intended for academic purposes and uses public API endpoints to ethically collect and process scholarly data.
+The project is developed for academic purposes and collects data exclusively through public API endpoints.
 
-### What is the ORCID platform?
+### Background
 
-An ORCID (Open Research and Contributor ID) is a free, unique, 16-digit persistent digital identifier for research professionals and students that solves the problem of distinguishing reserachers and their works throughout their careers. ORCID prevents confusion caused by name ambuity, creates a portable profile for each researcher that owns one, connects to other research repositories, and ensures authors get proper attribution for published works. The [ORCID](https://orcid.org/) platform permits universities and research institutions stay up to date with their researcher's contributions and publications, reducing the administrative burden and input errors and improving the discoverability of reseachers, employees, and students.
+**ORCID.** An ORCID iD (Open Researcher and Contributor ID) is a free, persistent 16-digit identifier for researchers. It distinguishes researchers with similar names, provides each researcher with a portable profile, and links that profile to their scholarly works. The [ORCID](https://orcid.org/) registry allows institutions to follow the contributions of their researchers with less administrative effort and fewer transcription errors.
 
-### What is DOI?
+**DOI.** A Digital Object Identifier is a persistent identifier assigned to a scholarly object such as a journal article, book chapter or conference paper. It resolves through <https://doi.org/> to the current location of the object, independently of changes in hosting. In this project the DOI is the key that links ORCID works to OpenAlex metadata, and the primary criterion for recognising two records as the same publication.
 
-A DOI (Digital Object Identifier) is a standardized, persistent alphanumeric string assigned to digital scholarly content such as journal articles, book chapters, and conference papers. It provides a permanent and reliable way to identify and locate academic works on the internet, regardless of changes in their URL or hosting platform.
-
-The DOI system ensures that each publication can be uniquely referenced and accessed through a consistent resolution mechanism, typically via the <https://doi.org/> resolver. This makes DOIs essential for citation, data integration, and interoperability between scholarly systems.
-
-In the context of this project, DOIs serve as the primary key for linking data between the ORCID platform and OpenAlex metadata, enabling accurate enrichment of publications and consolidation of information across multiple sources.
+**OpenAlex.** [OpenAlex](https://openalex.org/) is an open catalogue of scholarly works, authors and institutions. The system queries it by DOI to obtain subject classifications, keywords and open-access locations.
 
 ### Motivation
 
-The motivation for this project arises from the difficulty of establishing a clear and reliable association between a specific academic institution and the scholarly output of its researchers. Although ORCID and OpenAlex serve as a global registry that aggregates researcher identities and scholarly works worldwide, its comprehensive scope introduces significant overhead when an institution seeks to extract and analyze information relevant only to its own academic community.
+ORCID and OpenAlex are global registries. Their scope introduces considerable overhead when an institution needs to analyse only the output of its own academic community, because neither registry is organized around institutional boundaries. Institution-level analysis therefore requires the selective retrieval and processing of records.
 
-In practice, institutional-level analysis requires the selective retrieval and processing of scholarly data, as the platform is not inherently organized around institutional boundaries. This project addresses that challenge by providing a structured, API-based system that enables individual institutions to independently collect, process, and store data related to their researchers and associated scholarly works.
-
-By facilitating institution-focused data harvesting, the system supports localized analysis, reporting, and evaluation, while leveraging the global coverage and standardized identifiers provided by ORCID.
+This project provides a structured, API-based system through which an institution can independently collect, process and store data about its researchers and their works, and then analyse that data locally for reporting and evaluation, while relying on the standardized identifiers that ORCID and DOI provide.
 
 ---
 
-## Tools and Versions
+## Requirements
 
-### Programming Language
+### Software
 
-- Python 3.12 or later (tested with Python 3.13)
+| Component | Version | Purpose |
+| --- | --- | --- |
+| Python | 3.12 or later (developed with 3.13.2) | Runtime |
+| `requests` | 2.32.5 | HTTP communication with the ORCID and OpenAlex APIs |
+| `pymongo` | 4.16.0 | MongoDB access |
+| `dnspython` | 2.8.0 | DNS resolution for MongoDB Atlas connection strings |
+| `python-dotenv` | 1.2.1 | Loading of environment variables |
+| `Flask` | 3.0.0 | Web application and HTTP API |
+| `Flask-CORS` | 4.0.0 | Cross-origin request headers for the HTTP API |
 
-### External Libraries
+The web pages load Chart.js 4.4.0 and D3.js 7 from public CDNs, so a browser with internet access is required to display charts and the network graph.
 
-- `requests==2.32.5`  
-  Used for HTTP communication with external APIs (ORCID and OpenAlex).
-- `pymongo==4.16.0`  
-  Used for data persistence in MongoDB.
-- `dnspython==2.8.0`  
-  Required for DNS resolution when using MongoDB Atlas.
-- `python-dotenv==1.2.1`  
-  Used to manage environment variables.
+### Database
 
-### Database System
-
-This project uses MongoDB Atlas as its database backend. All persistent data generated during execution is stored in a cloud-hosted MongoDB instance. No application data is written to or persisted on the local filesystem, aside from temporary runtime artifacts.
-
-Database connection parameters are managed through environment variables and are not hardcoded into the source code.
+All persistent data is stored in a MongoDB Atlas cluster. Connection parameters are supplied through environment variables and are never written into the source code. Apart from optional backups and reports, the system writes no application data to the local filesystem.
 
 ---
 
-## Development Environment Configuration
+## Installation
 
-### 1. Repository Setup
-
-Clone the repository and navigate to the project root:
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/AshleyTRS/orcid-project.git
 cd orcid-project
 ```
 
-### 2. Python Virtual Environment
+### 2. Create a virtual environment
 
-A virtual environment is recommended to isolate project dependencies.
+Windows (PowerShell):
 
-#### Windows
-
-```bash
+```powershell
 python -m venv venv
-venv\Scripts\activate
+.\venv\Scripts\Activate.ps1
 ```
 
-#### Linux / macOS
+Linux or macOS:
 
 ```bash
 python -m venv venv
 source venv/bin/activate
 ```
 
-### 3. Dependency Installation
-
-Install the required libraries using the provided requirements file:
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Environment Variables
+### 4. Configure environment variables
 
-Create a `.env` file in the project root directory with the following structure:
+Create a `.env` file in the project root:
 
 ```bash
-ACCESS_TOKEN = <your-ORCID-API-access-token>
-MONGO_CONN = <your-mongo-db-uri>
-DB_PASSWORD = <your-mongo-db-password>
-DB_NAME = <your-mongo-db-name>
+ACCESS_TOKEN=<ORCID API access token>
+MONGO_CONN=<MongoDB connection string>
+DB_PASSWORD=<MongoDB password>
+DB_NAME=<MongoDB database name>
 ```
 
-The values may be adjusted depending on the execution environment and database configuration.
+`ACCESS_TOKEN` is required only by the harvesting scripts. The web application and the migrations require `MONGO_CONN` and `DB_NAME`.
 
 ---
 
 ## Execution
 
-The system is implemented entirely in Python and is executed using the Python interpreter. Proper execution depends on correct environment configuration and dependency installation.
+All commands are executed from the project root so that the `src` package resolves correctly. The stages are listed in the order in which a complete dataset is produced.
 
-Overmore, all executable workflows are located in the `scripts/` directory.
-Scripts must be executed from the project root to ensure correct module resolution.
-
-### Harvest ORCID Profiles
+### Stage 1. Harvest ORCID profiles
 
 ```bash
 python -m scripts.harvest_orcids
 ```
 
-This script retrieves ORCID researcher profiles and stores them in the database.
+Discovers researcher profiles through partitioned ORCID search queries and stores them in the `orcids` collection.
 
-### Harvest Scholarly Works
+### Stage 2. Harvest scholarly works
 
 ```bash
 python -m scripts.harvest_works
 ```
 
-This script retrieves research contributions or published works associated with previously stored ORCID profiles.
+Retrieves every work listed on each stored profile that has not yet been harvested and stores one document per ORCID work entry (`put_code`) in the `works` collection. Each document receives a `work_key` at insertion time, and after each profile is harvested the duplicate records of that profile are linked and its unique works count is refreshed (see [Work identity](#work-identity-and-deduplication)).
 
-### Enrich Metadata from OpenAlex
-
-```bash
-python -m scripts.enrich_data
-```
-
-This script enriches harvested scholarly works with comprehensive metadata from the OpenAlex API. It orchestrates a multi-step enrichment pipeline:
-
-1. Extracts unique DOIs from previously harvested works
-2. Queries the OpenAlex API for detailed metadata
-3. Normalizes and processes API responses
-4. Persists enriched metadata to the database
-
-The enrichment pipeline includes robust error handling to ensure continuous processing even when individual DOI lookups fail, and respects OpenAlex API rate limits (~10 requests per second).
-
-### Prepare Data for Analysis (Schema Migration)
+### Stage 3. Enrich works with OpenAlex metadata
 
 ```bash
-python src/data_migration/run_all.py
+python -m scripts.enrich_data_openalex
 ```
 
-This script executes a series of schema transformation migrations to prepare the raw harvested and enriched data for analytical workloads:
+Queues the distinct DOIs of harvested works, queries OpenAlex for each, normalizes the responses and stores them in the `works_metadata` collection. Requests are spaced by 0.1 seconds (at most ten per second). A failed lookup is recorded and does not interrupt the run.
 
-1. **migrate_doi** - Extracts DOI from nested external_ids array for efficient lookup
-2. **merge_metadata** - Copies OpenAlex concepts, keywords, and topics into works documents
-3. **enrich_institutions** - Maps researcher institutional affiliations to works
-4. **link_contributors** - Normalizes contributor names and establishes ORCID links
-5. **add_author_count** - Precomputes author counts to eliminate array traversal during aggregations
-6. **create_indexes** - Builds optimized indexes for common analytical queries
-7. **drop_unused_indexes** - Removes indexes no longer needed after transformations
-
-All migrations execute sequentially and log their progress. This process should be run after completing data harvesting and enrichment, and before beginning analytical work.
-
-### Create Database Backup
+### Stage 4. Prepare the data for analysis
 
 ```bash
-python scripts/dump_database_pymongo.py
+python -m src.data_migration.run_all
 ```
 
-This utility creates a timestamped JSON backup of all MongoDB collections. Backups are stored in the `backups/` directory with metadata tracking. Use this before executing destructive operations or as part of regular backup procedures.
+Executes the schema migrations in a fixed order:
 
-### Reset ORCID Data
+| Step | Migration | Effect |
+| --- | --- | --- |
+| 1 | `migrate_doi` | Copies the DOI from the nested `external_ids` array into a top-level `doi` field |
+| 2 | `merge_metadata` | Copies OpenAlex `concepts`, `keywords` and `topics` into each work, matched by DOI |
+| 3 | `merge_open_access` | Copies the open-access status and location (`is_oa`, `oa_url`) into each work, matched by DOI |
+| 4 | `enrich_institutions` | Copies the researcher's ORCID affiliations into each work as `institutions` |
+| 5 | `link_contributors` | Links contributors to stored ORCID profiles by normalized name |
+| 6 | `add_work_key` | Assigns `work_key` to every work and computes `unique_works_count` for every researcher |
+| 7 | `add_author_count` | Stores the number of contributors of each work as `author_count` |
+| 8 | `create_indexes` | Creates the indexes used by the analytical queries |
+| 9 | `drop_unused_indexes` | Removes indexes made obsolete by earlier steps |
+
+Each migration logs its progress and returns a status summary. A failed migration is reported and the remaining migrations still run. Every migration can be re-executed safely.
+
+One maintenance function, `check_works_count`, which reconciles the stored works counts, is not part of the sequence. The migrations, their dependencies, the commands for running individual steps and the maintenance function are documented in [src/data_migration/README.md](src/data_migration/README.md).
+
+### Stage 5. Run the web application
 
 ```bash
-python -m scripts.reset_orcids
+python run.py
 ```
 
-This utility script clears ORCID-related collections from the database to allow clean re-execution of the harvesting workflows.
+Starts the Flask development server in debug mode at <http://127.0.0.1:5000>. Python files and templates reload automatically when they change. The server is stopped with `Ctrl+C`.
 
-### Generate Analytics Reports
+| Page | Address | Description |
+| --- | --- | --- |
+| Search | `/` | Search researchers and works, with filters and summary charts |
+| Author profile | `/author/<orcid>` | Profile, statistics and complete list of an author's works |
+| Co-authorship network | `/network` | Filtered collaboration graph, built on request |
+| API viewer | `/json_view` | Raw JSON output of the co-authorship endpoint |
 
-```bash
-python scripts/analyze_publications.py
-```
+The HTTP endpoints used by these pages are documented in [API_REFERENCE.md](API_REFERENCE.md).
 
-This script generates comprehensive publication analytics reports including:
+### Auxiliary scripts
 
-- Publications per year
-- Publications per institution per year
-- Publications per type
-- Top authors by publication count
-- Author contributor analysis
-- Publication metrics summary
+| Command | Purpose |
+| --- | --- |
+| `python scripts/analyze_publications.py` | Prints publication statistics and writes them to `reports/publication_analysis.json` |
+| `python scripts/db_dumps/dump_database.py` | Creates a `mongodump` backup in `backups/` (requires the MongoDB Database Tools) |
+| `python scripts/db_dumps/dump_database_pymongo.py` | Creates a JSON backup of every collection in `backups/` |
+| `python -m scripts.reset_orcids` | Marks all profiles as not harvested so that Stage 2 retrieves their works again |
+| `python scripts/coauthorship_api.py` | Standalone server for the co-authorship network; superseded by `run.py`, which serves the same endpoints together with the other pages |
 
-Reports are displayed in the console and exported as JSON files in the `reports/` directory.
-
-### Visualize Co-authorship Networks
-
-```bash
-python scripts/coauthorship_api.py
-```
-
-This script starts a Flask web server that provides an interactive co-authorship network visualization. The system includes:
-
-- **Backend API**: RESTful endpoint (`/api/coauthorship`) that accepts year range parameters and returns network data
-- **Frontend Visualization**: D3.js force-directed graph showing author collaborations
-- **Interactive Controls**: Year range sliders for dynamic filtering
-- **Network Metrics**: Node sizes represent publication counts, edge thickness represents collaboration strength
-
-Access the visualization at `http://localhost:5000` after starting the server. The system supports datasets with approximately 35,000 works and 5,000 authors with near real-time updates.
+Backups are described in [scripts/db_dumps/DUMP_README.md](scripts/db_dumps/DUMP_README.md).
 
 ---
 
-## Project Structure
-
-The project follows a layered architecture that separates execution logic, domain components, and data processing stages:
+## Repository Structure
 
 ```txt
+run.py                       Entry point of the web application
 src/
-  ├── orcid/              ORCID API interaction and harvesting
-  │   ├── search/        Query infrastructure and discovery
-  │   ├── models/        Domain models for researcher profiles
-  │   └── storage/       Persistence layer for ORCID data
-  ├── works/             Scholarly works harvesting
-  │   ├── harvest/       Work retrieval and extraction
-  │   ├── models/        Work domain models
-  │   └── storage/       Persistence for works data
-  ├── data_enrichment/    Metadata enrichment pipeline
-  │   ├── metadata/      Enrichment orchestration and task queuing
-  │   ├── openalex/      OpenAlex API client and normalization
-  │   └── storage/       Persistence for enriched metadata
-  ├── data_migration/     Schema transformation and data preparation
-  │   ├── migrate_doi.py          Extract DOI from external_ids
-  │   ├── merge_metadata.py       Join OpenAlex metadata via DOI
-  │   ├── enrich_institutions.py  Add institutional affiliations
-  │   ├── link_contributors.py    Normalize and link contributor profiles
-  │   ├── add_author_count.py     Precompute author counts
-  │   ├── create_indexes.py       Build query optimization indexes
-  │   ├── drop_unused_indexes.py  Remove obsolete indexes
-  │   └── run_all.py              Orchestrate all migrations sequentially
-  ├── data_analysis/      Statistical analysis and reporting utilities
-  ├── analytics/          MongoDB aggregation pipelines for publication analytics
-  │   ├── aggregations.py         Core aggregation functions
-  │   └── README.md               Analytics module documentation
-  ├── coauthorship/       Co-authorship network analysis and visualization
-  │   └── coauthorship_aggregator.py  Network computation logic
-  └── db/                 Database connectivity and utilities
-
-scripts/                  Executable workflows and entry points
-  ├── harvest_orcids.py             Retrieve ORCID researcher profiles
-  ├── harvest_works.py              Retrieve scholarly works from profiles
-  ├── enrich_data_openalex.py       Enrich metadata from OpenAlex API
-  ├── analyze_publications.py       Generate publication analytics reports
-  ├── coauthorship_api.py           Co-authorship network visualization server
-  ├── dump_database_pymongo.py      Create timestamped database backups
-  └── reset_orcids.py               Clear ORCID collections for re-execution
-
-tests/                    Automated test suite and development utilities
-  └── data_migration/     Unit tests and integration tests for schema migrations
+  app/                       Flask application: page routes and HTTP API
+  analytics/                 Aggregation pipelines (search, statistics, author profiles)
+  coauthorship/              Co-authorship network model and construction
+  data_enrichment/           OpenAlex enrichment pipeline
+    metadata/                Enrichment orchestration and DOI queue
+    openalex/                OpenAlex client, normalization, abstract reconstruction
+    storage/                 Persistence of enriched metadata
+  data_migration/            Schema migrations (see Stage 4)
+  db/                        MongoDB connection
+  orcid/                     ORCID profile discovery
+    search/                  Search client, query partitioning, discovery engine
+    models/                  Researcher profile model
+    storage/                 Persistence of profiles and query partitions
+  works/                     ORCID works harvesting
+    harvest/                 Work retrieval and parsing
+    models/                  Work model
+    storage/                 Persistence of works
+    work_key.py              Work identity rules shared by harvesting, migrations and queries
+templates/                   HTML pages (Jinja2) and the shared header
+static/
+  styles/main.css            Shared stylesheet and design tokens
+  js/uaeh-institutes.js      List of UAEH institutes used by the sub-institution filters
+scripts/                     Command-line workflows (harvesting, enrichment, reports, backups)
+tests/
+  data_migration/            Unit tests for the migrations and work identity
 ```
-
-This layered structure supports clear separation of concerns, enabling independent testing, maintenance, and evolution of each stage in the harvesting, enrichment, and analysis pipeline. The data migration layer specifically enables reproducible schema transformations that prepare the raw harvested data for analytical workloads.
-
-### Migration Pipeline
-
-The data migration subsystem (`src/data_migration/`) provides a deterministic, reproducible approach to schema transformation:
-
-- **Sequence Control**: All migrations execute in a defined order to respect data dependencies
-- **Idempotency**: Migrations can be safely re-executed without corrupting data
-- **Logging and Monitoring**: Each migration logs relevant statistics for process visibility
-- **Error Handling**: Individual migration failures do not block subsequent migrations; manual recovery is possible
 
 ---
 
-## Documentation
+## Data Model
 
-Detailed documentation describing the system architecture, workflow, and internal components is available in the project Wiki.
-The Wiki provides conceptual explanations intended to complement the source code and facilitate academic evaluation.
+The database contains five collections.
+
+| Collection | Documents (3 October 2026) | Content |
+| --- | --- | --- |
+| `orcids` | 5,386 | Researcher profiles: names, affiliations, harvest state, `works_count`, `unique_works_count` |
+| `works` | 34,662 | One document per ORCID work entry, enriched by the migrations |
+| `works_metadata` | 12,632 | OpenAlex metadata, one document per DOI and source |
+| `metadata_queue` | 13,473 | DOIs pending or processed for enrichment |
+| `partitions` | 26 | State of the partitioned ORCID search queries |
+
+### Fields added to `works` by the pipeline
+
+| Field | Added by | Description |
+| --- | --- | --- |
+| `doi` | `migrate_doi` | DOI taken from `external_ids`, for direct lookup and joins |
+| `concepts`, `keywords`, `topics` | `merge_metadata` | OpenAlex classifications, copied to avoid joins during analysis |
+| `is_oa`, `oa_url` | `merge_open_access` | Open-access status and the best open-access location |
+| `institutions` | `enrich_institutions` | Affiliations of the record owner, as objects with a `name` field |
+| `contributors[].normalized_name`, `contributors[].orcid_id` | `link_contributors` | Normalized names and links to stored profiles |
+| `work_key` | harvester and `add_work_key` | Identity shared by all records of the same publication |
+| `author_count` | `add_author_count` | Number of contributors |
+
+### Fields of `orcids` used for counts
+
+| Field | Meaning |
+| --- | --- |
+| `works_count` | Number of work records stored for the profile, duplicates included |
+| `unique_works_count` | Number of distinct works of the researcher: works on the researcher's own ORCID record together with works on other records that list the researcher as a linked contributor, each counted once |
+
+### Work identity and deduplication
+
+The `works` collection holds one document per ORCID work entry. The same publication therefore appears several times: once on the record of every co-author who has an ORCID iD, and frequently several times on a single record, because ORCID keeps one entry for each source that imported the work (each with its own `put_code`). In the current dataset 5,667 documents repeat a work already present on the same researcher's record, and 34,662 documents describe 21,770 distinct works.
+
+Every document carries a `work_key`, and all statistics count distinct keys rather than documents. The rules, implemented in `src/works/work_key.py`, are applied in order:
+
+1. `doi:<doi>`: the DOI from `doi` or `external_ids`, without resolver prefix and in lower case.
+2. A record without a DOI whose normalized title and year match exactly one DOI record of the same researcher receives that DOI key.
+3. `title:<title>|<year>`: the normalized title (markup, accents, case and punctuation removed) and the year. Titles shorter than 40 characters are scoped to the record owner, so that generic titles such as "Editorial" are never merged across researchers.
+4. `put:<orcid>:<put_code>`: a record with neither DOI nor title is its own work.
+
+Documents are never deleted: the `put_code` is ORCID's identifier, and a later harvest would recreate any deleted entry. A detailed account of the problem, the measurements and the alternatives considered is given in [ARCHITECTURE.md](ARCHITECTURE.md#3-work-identity).
+
+---
+
+## Testing
+
+```bash
+python -m pytest tests/data_migration/ -v
+```
+
+The suite contains 98 unit tests for the migrations and the work identity rules. It uses mocked collections, requires no database and completes in under one second. Details are given in [tests/data_migration/README.md](tests/data_migration/README.md).
 
 ---
 
 ## Scope and Design Considerations
 
-### Data Sources
+### Data sources
 
-- The system relies exclusively on official public APIs: ORCID and OpenAlex.
-- No web crawling or HTML scraping is performed.
-- All data collection respects institutional rate limits and API usage policies.
+- The system uses only the official public APIs of ORCID and OpenAlex. No web crawling or HTML scraping is performed.
+- Request rates are limited by fixed delays between requests (0.1 seconds for both APIs).
 
 ### Architecture
 
-- Query partitioning is used to control request volume and improve scalability during ORCID harvesting.
-- Data persistence is handled through dedicated storage modules to ensure separation of concerns.
-- The enrichment pipeline incorporates batch processing and graceful error handling to maximize throughput while maintaining data integrity.
-- DOI normalization is applied consistently across all pipeline stages to ensure reliable matching between harvested works and API-sourced metadata.
+- ORCID discovery partitions its search queries to control request volume.
+- Persistence is handled by dedicated storage classes, separate from retrieval and orchestration.
+- DOIs are normalized consistently so that harvested works and OpenAlex metadata match reliably.
+- Work identity is defined once, in `src/works/work_key.py`, and used by the harvester, the migrations, the web application and the report functions.
 
 ### Extensibility
 
-- The modular design allows for future integration of additional metadata sources beyond OpenAlex.
-- Storage and API interfaces are abstracted to facilitate swapping implementations without affecting orchestration logic.
+- The enrichment pipeline accepts additional metadata sources through the same normalization and storage interfaces.
+- Storage and API clients are separate classes, so an implementation can be replaced without changing the orchestration logic.
 
 ---
 
-## Schema Modifications for Data Analysis and Mining
+## Limitations
 
-The MongoDB schema has been intentionally modified and enriched to support aggregation queries, statistical analysis, and machine learning pipelines. The following changes transform the raw data into an analysis-ready dataset while introducing certain limitations that should be understood.
+### Data completeness
 
-### Structural Changes
+- 9,439 of the 34,662 work records (27.2 percent) have no DOI. These works cannot be matched to OpenAlex and carry no topics, keywords or open-access information. Analyses of subjects or open access describe only the DOI-bearing subset.
+- 19,878 records (57.3 percent) carry OpenAlex topics.
+- 3,079 of the 5,386 harvested profiles list no works on ORCID and appear with a count of zero.
+- 411 records have no publication year and one record has the year 0. Year-based statistics exclude them; the earliest plausible year in the dataset is 1969.
 
-#### 1. DOI Extraction and Normalization
+### Temporal validity
 
-- **Field Added**: `doi` (top-level field in `works` collection)
-- **Source**: Extracted from nested `external_ids` array
-- **Purpose**: Enables efficient DOI-based lookups and joins with external data sources without array traversal
-- **Benefit for Analysis**: Provides reliable entity matching across systems; supports metadata enrichment and research network analysis
+The dataset is a snapshot. ORCID records and OpenAlex metadata continue to change after harvesting, and corrections made at the source are reflected only after a new harvest and enrichment.
 
-#### 2. Flattened Metadata Integration
+### Work identity
 
-- **Fields Added**: `concepts`, `keywords`, `topics` (in `works` collection)
-- **Source**: Populated from `works_metadata` collection via DOI matching
-- **Purpose**: Eliminates need for cross-collection joins during analytical queries
-- **Benefit for Analysis**: Enables field-level aggregations on research topics; supports classification and clustering tasks
+- Matching by title and year requires an exact match after normalization. Two records of the same work whose titles differ in wording, or whose years differ, remain separate.
+- Records of one work occasionally disagree on the publication year. Year-based counts assign such a work to the latest of its years within the requested range, so the count of a given year can vary slightly with the range requested.
+- Distinct versions of a work that carry distinct DOIs (for example, a preprint and the published article, or the version DOI and the concept DOI of a Zenodo record) are counted as distinct works.
 
-#### 3. Institution Enrichment
+### Institutional affiliation
 
-- **Field Added**: `institution` (in `works` collection)
-- **Purpose**: Maps researcher affiliation to scholarly works for institutional-level analysis
-- **Benefit for Analysis**: Aggregations at institutional level; enables comparative studies across organizations
+The `institutions` field reproduces the affiliations listed on the researcher's ORCID profile at harvest time. It does not record the affiliation stated on each individual publication and does not track changes of affiliation over time. Most profiles name the university without the institute or school, so filters by sub-institution return the subset of works whose affiliation text names that unit.
 
-#### 4. Normalized Contributor Information
+### Contributor linking
 
-- **Field Modified**: `contributors` array (in `works` collection)
-- **Normalization Applied**: Names standardized; ORCID profile links established
-- **Purpose**: Improves accuracy of contributor-based analysis; enables researcher tracking across publications
-- **Benefit for Analysis**: Reduces duplicate detection errors in collaboration networks; supports author disambiguation
+Collaboration statistics consider only contributors who are linked to a stored ORCID profile. Co-authors without an ORCID iD, or whose profile was not harvested, do not appear in the co-authorship network.
 
-#### 5. Precomputed Author Counts
+Linking is performed by exact comparison of normalized names. A contributor credited in a different form, such as initials or inverted order, remains unlinked, and names shared by two stored profiles are not used. Until October 2026 names containing accents or hyphens never matched, because the two sides of the comparison were normalized differently. After the correction, the share of profiles with such names that are linked as contributors rose from 24.4 to 48.3 percent, and the number of linked contributor entries from 19,961 to 37,601. The procedure and the complete before-and-after figures are given in [src/data_migration/README.md](src/data_migration/README.md#5-link_contributors).
 
-- **Field Added**: `author_count` (in `works` collection)
-- **Purpose**: Avoids expensive array length calculations during aggregations
-- **Benefit for Analysis**: Faster aggregations for author statistics; enables efficient filtering by publication scale
+### Open-access information
 
-#### 6. Optimized Indexing Strategy
-
-The schema now includes 12+ strategically placed indexes:
-
-- **Compound indexes** on (doi, institution) for institutional research discovery
-- **Text indexes** on subjects, keywords for full-text search and topic mining
-- **Numeric indexes** on author_count for range queries and stratification
-- **Sorted indexes** on dates for time-series analysis and trend detection
-
-### Limitations and Constraints
-
-#### 1. Data Completeness
-
-- **DOI Availability**: Not all works in ORCID have associated DOIs. Works without DOIs cannot be matched to OpenAlex metadata and remain unrich enriched.
-- **Impact**: Approximately 10% of works may lack comprehensive metadata enrichment. Statistical analyses should account for this selection bias.
-
-#### 2. Temporal Limits
-
-- **Snapshot Nature**: The dataset represents a point-in-time snapshot of researcher profiles and works. ORCID and OpenAlex data continue to evolve.
-- **Impact**: Historical analyses may not reflect corrections or updates made to original source records after harvesting.
-
-#### 3. Deduplica of Metadata
-
-- **DOI Collisions**: In rare cases, multiple works may share identical DOIs due to versioning or data errors in source systems.
-- **Impact**: Aggregations by DOI may inadvertently combine unrelated works. Manual verification is recommended for sensitive analyses.
-
-#### 4. Flattening Loss
-
-- **Historical Context**: Original nested `external_ids` and `metadata_queue` structures are preserved but may become stale. Flattened fields (`doi`, `concepts`, `keywords`) reflect enrichment state at migration time.
-- **Impact**: Re-running migrations does not retroactively update previously enriched records. Full re-enrichment requires dataset reset.
-
-#### 5. Institutional Affiliation Reliability
-
-- **Single Affiliation**: Current implementation maps only the primary institution per researcher at the time of profile harvest. Historical institutional changes are not tracked.
-- **Impact**: Longitudinal institutional analyses may misattribute works to incorrect organizations. Multi-affiliation scenarios are not fully represented.
-
-#### 6. Scalability Constraints
-
-- **Aggregation Performance**: Complex aggregations with multiple stages may exceed MongoDB memory limits on very large datasets (>100M documents).
-- **Recommendations**: For analysis of complete global datasets, consider materialized views or data export for external processing tools (e.g., Spark, Pandas).
-
-### Recommended Analysis Workflows
-
-Given these schema modifications and limitations, the following analytical approaches are recommended:
-
-1. **Topic and Skills Mining**
-   - Leverage flattened `concepts`, `keywords`, `topics` fields for unsupervised clustering
-   - Group by institution and research focus for comparative analysis
-   - Limitation: Filter out works with missing DOI to avoid bias
-
-2. **Collaboration Network Analysis**
-   - Use normalized `contributors` data to construct researcher networks
-   - Limitation: Rely on ORCID IDs for linking; some contributors may lack ORCID profiles
-
-3. **Institutional Productivity Assessment**
-   - Aggregate by `institution` and time period using precomputed `author_count`
-   - Limitation: Be aware of single-affiliation constraint when interpreting multi-institutional collaborations
-
-4. **Metadata Distribution Analysis**
-   - Analyze OpenAlex fields (concepts, keywords) for research landscape characterization
-   - Limitation: Only works with DO are enriched; non-DOI works will appear as missing values
-
-<!-- ### Data Mining Considerations
-
-For machine learning and classification tasks:
-
-- **Feature Engineering**: The flattened schema supports direct feature extraction without complex preprocessing. Precomputed fields (`author_count`) can serve as numeric features.
-- **Training Data Quality**: The dataset is suitable for supervised learning tasks where the outcome variable is derived from text fields (e.g., topic classification) or numeric fields (e.g., authorship prediction).
-- **Class Imbalance**: Consider stratification by `institution` or `author_count` to avoid biased models.
-- **Feature Completeness**: Implement handling for missing values in enriched fields, as non-DOI works will have null metadata fields. -->
+Open-access fields are updated by step 3 of the migration sequence from the most recent OpenAlex enrichment. About 37 percent of the stored open-access links point directly to a PDF or download; the remainder point to publisher or DOI landing pages.
 
 ---
+
+## Documentation
+
+| Document | Content |
+| --- | --- |
+| [README.md](README.md) | Overview, installation, execution, data model and limitations |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, data flow, work identity, web application design and design decisions |
+| [API_REFERENCE.md](API_REFERENCE.md) | HTTP endpoints of the web application |
+| [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) | Index of all project documents |
+| [src/data_migration/README.md](src/data_migration/README.md) | Schema migrations: order, effects, commands and maintenance functions |
+| [src/analytics/README.md](src/analytics/README.md) | Aggregation and author profile functions |
+| [src/coauthorship/README.md](src/coauthorship/README.md) | Co-authorship network construction |
+| [tests/data_migration/README.md](tests/data_migration/README.md) | Unit test suite |
+| [scripts/db_dumps/DUMP_README.md](scripts/db_dumps/DUMP_README.md) | Database backup and restoration |

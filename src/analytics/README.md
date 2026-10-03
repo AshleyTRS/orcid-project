@@ -1,579 +1,162 @@
-# Analytics Module Documentation
+# Analytics Module
 
 ## Overview
 
-The `src/analytics/` module provides MongoDB aggregation pipelines for computing publication statistics, institutional analysis, author metrics, and comprehensive reports over the scholarly works database.
+The `src/analytics` package contains the MongoDB aggregation pipelines of the project. It serves three consumers:
 
-All functions are designed to:
+- the HTTP API of the web application (`src/app`), which uses the search, author profile and filter option functions;
+- the report script `scripts/analyze_publications.py`, which uses the report functions;
+- interactive analysis in Python, for which every function returns plain lists and dictionaries.
 
-- Return results as Python lists/dicts for easy integration with visualization tools
-- Support optional year range filtering for temporal analysis
-- Include comprehensive logging for debugging and monitoring
-- Handle missing/null values gracefully
-- Leverage MongoDB indexes for optimal query performance
+| Module | Content |
+| --- | --- |
+| `aggregations.py` | Search helpers, report functions, paginated listings and filter option counts |
+| `author_profile.py` | Profile, statistics and works of a single researcher |
 
-## Quick Start
+## Counting Principle
+
+The `works` collection stores one document per ORCID work entry. A publication therefore appears once on the record of each co-author with an ORCID iD, and frequently several times on one record, once for each source that imported it. All functions in this package count distinct works by the `work_key` field rather than documents. The field and its rules are defined in `src/works/work_key.py` and described in [ARCHITECTURE.md](../../ARCHITECTURE.md#3-work-identity).
+
+Pipelines that need whole documents collapse duplicates with `unique_works_stages()` from `src/works/work_key.py`, which keeps one document per `work_key`, or per pair of `orcid_id` and `work_key` when counts are attributed to record owners.
+
+Every document receives a `work_key` from the harvester or from the `add_work_key` migration. Should a document lack one, the search, filter option, per-year and network queries exclude it, and the author profile queries treat it as a work of its own. The report functions assume that every document has a key: documents without one would be grouped together and counted as a single work.
+
+## Usage
 
 ```python
-from src.analytics.aggregations import publications_per_year, top_authors
-from src.db.MongoConnection import MongoConnection
 import os
 from dotenv import load_dotenv
+from src.db.MongoConnection import MongoConnection
+from src.analytics.aggregations import publications_per_year, top_authors
 
-# Setup
 load_dotenv()
 mongo = MongoConnection(os.getenv("MONGO_CONN"), os.getenv("DB_NAME"))
 
-# Get publication trends
-yearly_pubs = publications_per_year(mongo.db)
-for stat in yearly_pubs:
-    print(f"{stat['year']}: {stat['count']} publications")
+for row in publications_per_year(mongo.db, start_year=2020, end_year=2025):
+    print(row["year"], row["count"])
 
-# Get top 5 most prolific authors
-top_5 = top_authors(mongo.db, limit=5)
-for author in top_5:
-    print(f"{author['orcid_id']}: {author['count']} publications")
+for row in top_authors(mongo.db, limit=5):
+    print(row["orcid_id"], row["count"])
 
 mongo.close()
 ```
 
-## API Reference
-
-### Core Functions
-
-#### 1. `publications_per_year(db, start_year=None, end_year=None)`
-
-**Purpose**: Aggregate publication counts by publication year.
-
-**Parameters**:
-
-- `db` (MongoDB database): Database object from MongoConnection
-- `start_year` (int, optional): Filter results from this year onwards
-- `end_year` (int, optional): Filter results up to this year inclusive
-
-**Returns**: List of dictionaries
-
-```python
-[
-    {"year": 2020, "count": 120},
-    {"year": 2021, "count": 150},
-    {"year": 2022, "count": 200}
-]
-```
-
-**Use Cases**:
-
-- Visualize publication trends over time
-- Identify growth/decline in research output
-- Time-series analysis for institutional reporting
-
-**Example**:
-
-```python
-# All years
-all_years = publications_per_year(mongo.db)
-
-# Recent 5 years
-recent = publications_per_year(mongo.db, start_year=2020, end_year=2025)
-
-# Plot with matplotlib
-import matplotlib.pyplot as plt
-years = [s['year'] for s in recent]
-counts = [s['count'] for s in recent]
-plt.plot(years, counts, marker='o')
-plt.title('Publication Trend (2020-2025)')
-plt.show()
-```
+Every function receives the database object (`mongo.db`) as its first argument, logs its progress, and re-raises database errors after logging them.
 
 ---
 
-#### 2. `publications_per_institution_per_year(db, start_year=None, end_year=None)`
+## Search Helpers (`aggregations.py`)
 
-**Purpose**: Aggregate publication counts by institution and year.
+### `build_works_match(query=None, start_year=None, end_year=None, types=None, subjects=None, keywords=None, institutes=None)`
 
-**Parameters**:
+Returns a `$match` document for the `works` collection. It is shared by the works search and the co-authorship network so that both interpret filters identically.
 
-- `db` (MongoDB database): Database object
-- `start_year` (int, optional): Filter from this year
-- `end_year` (int, optional): Filter to this year
+| Argument | Matching rule |
+| --- | --- |
+| `query` | Every term must match the title, a normalized contributor name or the DOI |
+| `start_year`, `end_year` | Inclusive bounds on `publication_year` |
+| `types` | `type` is one of the values |
+| `subjects` | `topics.field.display_name` contains one of the values |
+| `keywords` | `keywords.display_name` contains one of the values |
+| `institutes` | An entry of `institutions.name` contains one of the values as an accent-insensitive substring |
 
-**Returns**: List of dictionaries
+Only documents with a `work_key` match.
 
-```python
-[
-    {"institution": "Universidad Nacional Autónoma de México", "year": 2020, "count": 45},
-    {"institution": "Instituto Politécnico Nacional", "year": 2020, "count": 38},
-    {"institution": "Universidad Nacional Autónoma de México", "year": 2021, "count": 52}
-]
-```
+### `search_terms(query)`, `strip_accents(text)`, `accent_insensitive_regex(text)`
 
-**Use Cases**:
-
-- Institutional benchmark reporting
-- Comparative analysis between organizations
-- Identify institutional research leaders
-- Stacked area charts showing institutional contributions over time
-
-**Example**:
-
-```python
-# Compare Mexican institutions 2020-2025
-results = publications_per_institution_per_year(mongo.db, start_year=2020)
-
-# Group by institution for summary
-by_institution = {}
-for record in results:
-    inst = record['institution']
-    if inst not in by_institution:
-        by_institution[inst] = []
-    by_institution[inst].append(record)
-
-# Find top institutions
-top_institutions = sorted(
-    by_institution.items(),
-    key=lambda x: sum(r['count'] for r in x[1]),
-    reverse=True
-)[:10]
-
-for inst_name, records in top_institutions:
-    total = sum(r['count'] for r in records)
-    print(f"{inst_name}: {total} publications")
-```
+`search_terms` splits a query into at most ten whitespace-separated terms. `strip_accents` lower-cases a string and removes diacritics. `accent_insensitive_regex` builds a regular expression that matches its argument regardless of accents and case by replacing each vowel and the letters `n`, `c` and `y` with a class of their accented variants; all other characters are escaped.
 
 ---
 
-#### 3. `publications_per_type(db, start_year=None, end_year=None)`
+## Listings Used by the Web Application
 
-**Purpose**: Aggregate publication counts by publication type.
+### `all_authors_details_paginated(db, page=1, limit=50, query=None, institutes=None)`
 
-**Parameters**:
+Researchers ordered by `unique_works_count` (descending), then by ORCID iD. `query` is matched against given names, family names, credit name and ORCID iD; `institutes` against the profile's `institution_names`. Returns the pagination structure `{"data", "page", "has_next", "total"}`; each item contains `orcid_id`, `given_names`, `family_names` and `count`.
 
-- `db` (MongoDB database): Database object
-- `start_year` (int, optional): Filter from this year
-- `end_year` (int, optional): Filter to this year
+### `all_works_details_paginated(db, page=1, limit=50, query=None, start_year=None, end_year=None, keywords=None, institutes=None)`
 
-**Returns**: List of dictionaries (sorted by count descending)
+Distinct works ordered by publication year (descending). The pipeline filters with `build_works_match`, groups by `work_key`, sorts, and paginates and counts in one `$facet` stage. Each item contains `doi`, `title`, `publication_year`, `type`, `journal_title` and `contributors`. When the records of a work differ, the DOI is taken from a record that has one.
 
-```python
-[
-    {"type": "journal-article", "count": 5000},
-    {"type": "conference-paper", "count": 1200},
-    {"type": "book-chapter", "count": 300},
-    {"type": "book", "count": 50}
-]
-```
+### `value_counts(db, field_path, limit=100)` and `top_keywords(db, limit=100)`
 
-**Supported Types** (ORCID standard):
+`value_counts` counts distinct works per value of a field, most frequent first, and returns `[{"value", "count"}]`. The field may be scalar (`type`) or a path into an array of sub-documents (`topics.field.display_name`); a value repeated within one work counts once for that work. `top_keywords` applies it to `keywords.display_name` and returns `[{"keyword", "count"}]`.
 
-- `journal-article` - Peer-reviewed journal articles
-- `conference-paper` - Conference proceedings
-- `book` - Published books
-- `book-chapter` - Chapters in edited books
-- `dissertation` - Theses and dissertations
-- `report` - Technical and research reports
-- `data-set` - Data publications
-- And others per ORCID specification
+### `publications_per_year(db, start_year=1969, end_year=None)`
 
-**Use Cases**:
-
-- Understand research output distribution
-- Pie or donut charts showing publication type breakdown
-- Publication portfolio analysis
-
-**Example**:
-
-```python
-# Get publication type distribution
-type_dist = publications_per_type(mongo.db)
-
-# Create pie chart
-import matplotlib.pyplot as plt
-labels = [t['type'] for t in type_dist]
-sizes = [t['count'] for t in type_dist]
-plt.pie(sizes, labels=labels, autopct='%1.1f%%')
-plt.title('Publication Type Distribution')
-plt.show()
-
-# Calculate proportions
-total = sum(t['count'] for t in type_dist)
-for pub_type in type_dist:
-    pct = (pub_type['count'] / total * 100)
-    print(f"{pub_type['type']}: {pct:.1f}%")
-```
+Number of distinct works per publication year, ordered by year. `end_year` defaults to the current year. A work whose records disagree on the year is counted under the latest of its years within the range. Passing `start_year=None` explicitly yields an empty result; callers should omit the argument to use the default.
 
 ---
 
-#### 4. `top_authors(db, limit=10, start_year=None, end_year=None)`
+## Report Functions
 
-**Purpose**: Identify most prolific authors by publication count (primary author only).
+These functions are used by `scripts/analyze_publications.py`. Each accepts optional inclusive `start_year` and `end_year` bounds and counts distinct works.
 
-**Parameters**:
+### `publications_per_institution_per_year(db, start_year=None, end_year=None)`
 
-- `db` (MongoDB database): Database object
-- `limit` (int): Maximum authors to return (default: 10)
-- `start_year` (int, optional): Filter from this year
-- `end_year` (int, optional): Filter to this year
+Works per affiliation and year, ordered by year: `[{"institution", "year", "count"}]`. A work is counted once for each affiliation stored on it. Affiliations are those of the record owner's ORCID profile (see the limitations in [README.md](../../README.md#institutional-affiliation)).
 
-**Returns**: List of dictionaries (sorted by count descending)
+### `publications_per_type(db, start_year=None, end_year=None)`
 
-```python
-[
-    {"orcid_id": "0000-0001-2345-6789", "count": 87},
-    {"orcid_id": "0000-0002-3456-7890", "count": 74},
-    {"orcid_id": "0000-0003-4567-8901", "count": 65}
-]
-```
+Works per ORCID work type, most frequent first: `[{"type", "count"}]`.
 
-**Notes**:
+### `top_authors(db, limit=10, start_year=None, end_year=None)`
 
-- This counts only works where `orcid_id` field is populated (primary author)
-- Does not include authors appearing only as contributors
-- Use `author_contributor_analysis()` for comprehensive author metrics
+Researchers with the most distinct works on their own ORCID record: `[{"orcid_id", "count"}]`. Duplicate records on one record count once. Works on which the researcher appears only as a contributor on another record are not included; `unique_works_count` in the `orcids` collection includes them.
 
-**Use Cases**:
+### `author_contributor_analysis(db, limit=10, start_year=None, end_year=None)`
 
-- Identify institutional research leaders
-- Understand author productivity distribution
-- Create author leaderboards for reporting
+Contributors with linked ORCID iDs ranked by the number of distinct works on which they appear: `[{"orcid_id", "name", "publication_count"}]`. Counts are grouped by the pair of ORCID iD and credited name, so a researcher credited under two spellings appears twice.
 
-**Example**:
+### `publication_metrics_summary(db, start_year=None, end_year=None)`
 
-```python
-# Top 20 authors overall
-top_20 = top_authors(mongo.db, limit=20)
-
-# Top 5 authors from last 3 years
-recent_leaders = top_authors(mongo.db, limit=5, start_year=2022)
-
-# Display with rank
-for rank, author in enumerate(top_20, 1):
-    print(f"{rank:2}. {author['orcid_id']}: {author['count']:3} publications")
-
-# Analyze productivity distribution
-from statistics import mean, median, stdev
-counts = [a['count'] for a in top_authors(mongo.db, limit=100)]
-print(f"Mean: {mean(counts):.1f}")
-print(f"Median: {median(counts):.1f}")
-print(f"StdDev: {stdev(counts):.1f}")
-```
+Summary of the selection: number of distinct works, number of distinct affiliations, mean, minimum and maximum number of contributors per work, number of work types, year range, and the time at which the summary was computed (`computed_at`).
 
 ---
 
-#### 5. `author_contributor_analysis(db, limit=10, start_year=None, end_year=None)`
+## Author Profile (`author_profile.py`)
 
-**Purpose**: Identify top contributors including co-authors by publication count.
+A researcher's works are the works on the researcher's own ORCID record together with works on other records that list the researcher as a linked contributor, each counted once by `work_key`. The same definition determines `orcids.unique_works_count`, so the search page, the profile statistics and the works list report the same number.
 
-**Parameters**:
+### `is_valid_orcid(orcid_id)`
 
-- `db` (MongoDB database): Database object
-- `limit` (int): Maximum contributors to return (default: 10)
-- `start_year` (int, optional): Filter from this year
-- `end_year` (int, optional): Filter to this year
+Whether the identifier has the form `0000-0000-0000-000X`.
 
-**Returns**: List of dictionaries (sorted by publication_count descending)
+### `get_author_profile(db, orcid_id)`
 
-```python
-[
-    {
-        "orcid_id": "0000-0001-2345-6789",
-        "name": "Dr. Jane Smith",
-        "publication_count": 127
-    },
-    {
-        "orcid_id": "0000-0002-3456-7890",
-        "name": "Prof. John Doe",
-        "publication_count": 105
-    }
-]
-```
+Returns the profile and statistics, or `None` if neither a profile nor a work exists for the identifier. The result contains the display name, other credited names, affiliations, the number of stored records (`orcid_works_count`), statistics (distinct works, open-access works, co-authors, first and last year), works per year, and the eight most frequent topics and types. E-mail addresses are never read.
 
-**Notes**:
+### `get_author_works(db, orcid_id, page=1, limit=20, sort="newest", open_access_only=False)`
 
-- Includes all publications where person appears as contributor
-- Requires contributor ORCID IDs to be populated
-- Counts each publication once per person (not cumulative with primary author)
-- Returns contributor name from `credit_name` field
-
-**Use Cases**:
-
-- Comprehensive author performance analysis
-- Collaboration network analysis
-- Identify most active researchers regardless of authorship position
-- Coauthor statistics
-
-**Example**:
-
-```python
-# Get top 25 active contributors
-active = author_contributor_analysis(mongo.db, limit=25)
-
-# Create ranked list with names
-for rank, contrib in enumerate(active, 1):
-    print(f"{rank:2}. {contrib['name']:<30} ({contrib['orcid_id']})")
-    print(f"    {contrib['publication_count']} publications\n")
-
-# Identify collaborators for a specific author
-target_orcid = "0000-0001-2345-6789"
-all_contributors = author_contributor_analysis(mongo.db, limit=500)
-collaborators = [c for c in all_contributors if c['orcid_id'] != target_orcid]
-print(f"Top collaborators with {target_orcid}:")
-for collab in collaborators[:10]:
-    print(f"  - {collab['name']}")
-```
+One page of the researcher's distinct works. `sort` is `newest`, `oldest` or `title`; the title order ignores case and leading quotation marks and brackets. Each item includes `oa_url`, restricted to `http` and `https` addresses, and `oa_is_pdf`, which indicates whether that address points directly to a document.
 
 ---
 
-#### 6. `publication_metrics_summary(db, start_year=None, end_year=None)`
+## Legacy Functions
 
-**Purpose**: Generate comprehensive summary statistics for the publication dataset.
-
-**Parameters**:
-
-- `db` (MongoDB database): Database object
-- `start_year` (int, optional): Filter from this year
-- `end_year` (int, optional): Filter to this year
-
-**Returns**: Dictionary with summary metrics
-
-```python
-{
-    "total_publications": 10234,
-    "total_institutions": 156,
-    "avg_authors_per_publication": 3.45,
-    "min_authors": 1,
-    "max_authors": 42,
-    "publication_types": 8,
-    "year_range": {
-        "min": 2010,
-        "max": 2025
-    },
-    "computed_at": "2026-03-20T15:30:45.123456"
-}
-```
-
-**Use Cases**:
-
-- Dashboard summary cards
-- Institutional reporting headers
-- Data quality assessment
-- Dataset characterization for machine learning
-
-**Example**:
-
-```python
-# Get overall statistics
-summary = publication_metrics_summary(mongo.db)
-
-# Get recent 5-year statistics
-recent = publication_metrics_summary(mongo.db, start_year=2020)
-
-# Display summary
-print(f"📊 Publication Database Summary")
-print(f"   Total Publications: {summary['total_publications']:,}")
-print(f"   Institutions: {summary['total_institutions']}")
-print(f"   Publication Types: {summary['publication_types']}")
-print(f"   Average Authors/Pub: {summary['avg_authors_per_publication']:.2f}")
-print(f"   Author Range: {summary['min_authors']}-{summary['max_authors']}")
-print(f"   Years: {summary['year_range']['min']}-{summary['year_range']['max']}")
-
-# Calculate changes
-pct_change = ((recent['total_publications'] / summary['total_publications']) - 1) * 100
-print(f"\n   Publications 2020-2025: {recent['total_publications']:,} ({pct_change:+.1f}%)")
-```
+`all_authors_details(db)` and `all_works_details(db)` return complete, unpaginated listings. They are not used by the application or the scripts. `all_works_details` removes duplicates by DOI only and omits works without a DOI; new code should use the paginated functions, which apply the work identity rules.
 
 ---
 
-## Advanced Usage
+## Indexes
 
-### Combining Results for Visualization
+The pipelines rely on the following indexes of the `works` collection, created by the migrations:
 
-```python
-import json
-from src.analytics.aggregations import *
+| Index | Used by |
+| --- | --- |
+| `orcid_id`, (`orcid_id`, `work_key`) | Author profile, `top_authors` |
+| `contributors.orcid_id` | Author profile (works listing the researcher as contributor) |
+| `work_key` | Grouping of duplicate records |
+| `publication_year`, (`publication_year`, `type`) | Year filters and per-year counts |
+| `type`, `institutions.name` | Publication type and institute filters |
 
-db = mongo.db
-
-# Comprehensive data export for D3.js visualization
-data = {
-    "summary": publication_metrics_summary(db),
-    "yearly_trends": publications_per_year(db),
-    "institutional_analysis": publications_per_institution_per_year(db),
-    "type_distribution": publications_per_type(db),
-    "top_authors": top_authors(db, limit=25),
-    "top_contributors": author_contributor_analysis(db, limit=25)
-}
-
-# Export as JSON for frontend
-with open('publications_data.json', 'w') as f:
-    json.dump(data, f, indent=2, default=str)
-```
-
-### Year-over-Year Growth Analysis
-
-```python
-def analyze_growth(db):
-    yearly = publications_per_year(db)
-    
-    print("Year-over-Year Growth:")
-    for i in range(1, len(yearly)):
-        prev = yearly[i-1]
-        curr = yearly[i]
-        growth = ((curr['count'] / prev['count']) - 1) * 100
-        print(f"  {prev['year']} → {curr['year']}: {growth:+.1f}%")
-
-analyze_growth(db)
-```
-
-### Institutional Benchmarking
-
-```python
-def benchmark_institutions(db, institutions_list):
-    results = publications_per_institution_per_year(db, start_year=2020)
-    
-    benchmark = {}
-    for result in results:
-        if result['institution'] in institutions_list:
-            if result['institution'] not in benchmark:
-                benchmark[result['institution']] = 0
-            benchmark[result['institution']] += result['count']
-    
-    # Rank and compare
-    ranked = sorted(benchmark.items(), key=lambda x: x[1], reverse=True)
-    
-    # Calculate percentiles
-    counts = [count for _, count in ranked]
-    mean_count = sum(counts) / len(counts)
-    
-    for inst, count in ranked:
-        pct_of_mean = (count / mean_count - 1) * 100
-        print(f"{inst}: {count} publications ({pct_of_mean:+.0f}% vs average)")
-
-# Usage
-target_institutions = [
-    "Universidad Nacional Autónoma de México",
-    "Instituto Politécnico Nacional",
-    "Universidad de São Paulo"
-]
-benchmark_institutions(db, target_institutions)
-```
-
-### Export for Data Mining
-
-```python
-import pandas as pd
-
-def export_to_dataframe(db):
-    """Export aggregation results to pandas DataFrames for analysis."""
-    
-    yearly = publications_per_year(db)
-    yearly_df = pd.DataFrame(yearly)
-    
-    institution_year = publications_per_institution_per_year(db, start_year=2015)
-    inst_df = pd.DataFrame(institution_year)
-    
-    types = publications_per_type(db)
-    types_df = pd.DataFrame(types)
-    
-    return {
-        'yearly': yearly_df,
-        'institutions': inst_df,
-        'types': types_df
-    }
-
-# Usage
-dfs = export_to_dataframe(db)
-
-# Analyze trends
-dfs['yearly'].plot(x='year', y='count', kind='line')
-
-# Pivot for heatmap
-pivot_table = dfs['institutions'].pivot_table(
-    values='count',
-    index='institution',
-    columns='year'
-)
-
-# Find top institutions by 5-year average
-top_5_avg = dfs['institutions'].groupby('institution')['count'].mean().nlargest(10)
-```
-
-## Performance Considerations
-
-### Index Utilization
-
-The aggregation pipelines leverage the following indexes for optimal performance:
-
-```
-db.works.indexes:
-  - publication_year (ascending)
-  - type (ascending)
-  - orcid_id (ascending)
-  - institutions.name (ascending)
-  - contributors.orcid_id (ascending)
-```
-
-### Query Performance Tips
-
-1. **Use year filters** when possible to reduce document scans:
-
-   ```python
-   recent = publications_per_year(db, start_year=2015)  # Faster
-   ```
-
-2. **Limit results** for co-author analysis:
-
-   ```python
-   top_100 = author_contributor_analysis(db, limit=100)  # Faster than limit=10000
-   ```
-
-3. **Materialize views** for frequently accessed reports:
-   - Save aggregation results as separate collections
-   - Update via scheduled batch jobs
-
-### Scalability
-
-- **Small datasets** (<1M docs): All queries execute in milliseconds
-- **Medium datasets** (1-100M docs): Year filtering strongly recommended
-- **Large datasets** (>100M docs): Consider hourly/daily materialized views
-
-## Error Handling
-
-All functions include try-catch blocks and logging:
-
-```python
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-try:
-    results = top_authors(db, limit=10)
-except Exception as e:
-    logger.error(f"Failed to compute top authors: {str(e)}")
-    # Handle gracefully...
-```
+The subject filter matches `topics.field.display_name`, which has no index of its own; the existing `topics.display_name` index covers topic names, not fields. The search page orders researchers using the index (`unique_works_count` descending, `orcid_id`) of the `orcids` collection. Free-text search uses unanchored regular expressions, which cannot use an index and scan the matching collection; with the current data volume such queries complete in well under a second.
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Empty results | Check year range filters; verify data exists for criteria |
-| Slow queries | Add year_range filter; check index usage with `explain()` |
-| Missing contributors | Some works may have null contributor IDs; use main API for those |
-| Null institutions | Some works may not have institutional affiliation; use filter if needed |
-
-## Example: Complete Analytics Report
-
-See [scripts/analyze_publications.py](../scripts/analyze_publications.py) for a complete example script that:
-
-1. Generates summary statistics
-2. Produces yearly trends visualization data
-3. Identifies institutional leaders
-4. Ranks top authors
-5. Exports results to JSON for reporting
-
-Run with:
-
-```bash
-python scripts/analyze_publications.py
-```
+| Symptom | Cause and remedy |
+| --- | --- |
+| A function returns no rows | Verify the year bounds; for `publications_per_year`, omit `start_year` or pass an integer |
+| Counts differ from older reports | Earlier reports counted documents; current functions count distinct works |
+| A new work is missing from listings | The document has no `work_key`; run `python -m src.data_migration.add_work_key` |
+| `unique_works_count` of a co-author is outdated after a harvest | Run `add_work_key` (step 6 of `run_all.py`), which recomputes all counts |

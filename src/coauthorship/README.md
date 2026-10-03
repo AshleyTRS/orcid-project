@@ -1,293 +1,81 @@
-# Co-authorship Network - OOP Refactored Version
+# Co-authorship Network
 
 ## Overview
 
-This is a refactored, object-oriented implementation of a co-authorship network pipeline that builds dynamic graphs from MongoDB publication data. The system correctly handles the complexity of publications appearing multiple times in the database (once per author with an ORCID) and provides accurate metrics for author productivity and collaboration strength.
+The `src/coauthorship` package builds the co-authorship network of the researchers in the database. A node represents a researcher identified by an ORCID iD; an edge joins two researchers who share at least one publication. Node size corresponds to the number of publications of the researcher within the selection, and edge weight to the number of publications the two researchers share.
 
-## Architecture
+The network is served by the web application through `GET /api/coauthorship` and `GET /api/stats` (see [API_REFERENCE.md](../../API_REFERENCE.md#co-authorship-network)) and drawn on the `/network` page.
 
-### Core Components
+## Components
 
-#### 1. **Domain Models** (`models.py`)
+| Module | Class or function | Responsibility |
+| --- | --- | --- |
+| `models.py` | `Publication` | A unique publication and the set of ORCID iDs of its authors |
+| | `Node`, `Edge`, `NetworkData` | Graph elements and their JSON serialization; `NetworkData.get_stats()` computes summary statistics |
+| | `Author` | ORCID-identified author (equality by ORCID iD) |
+| `network_builder.py` | `MongoDBNetworkExtractor` | Selects the works that satisfy the filters and passes them to the builder |
+| | `CoauthorshipNetworkBuilder` | Merges records into publications and computes node counts and edge weights |
+| `coauthorship_aggregator.py` | `CoauthorshipAggregator` | Entry point: validates the year range, builds the network and returns it as a dictionary |
+| | `get_coauthorship_data()` | Function form of the entry point, kept for compatibility |
 
-Defines the core data structures:
+## Construction
 
-- `Author`: Represents an author with ORCID
-- `Publication`: Represents a unique work with its authors
-- `Node`: Graph node representing an author with publication count
-- `Edge`: Graph edge representing a collaboration with weight
-- `NetworkData`: Complete network containing nodes and edges
+1. **Selection.** `MongoDBNetworkExtractor.extract_network()` matches works with `build_works_match()` from `src/analytics/aggregations.py`, the same filter definition used by the works search. It accepts a year range and optional lists of publication types, subjects, keywords and institutes. Only the fields needed for the graph are read: `work_key`, `doi`, `orcid_id`, `publication_year` and `contributors.orcid_id`.
+2. **Merging into publications.** `CoauthorshipNetworkBuilder.add_document()` merges records by `work_key`. A publication is stored once per co-author with an ORCID iD and frequently several times on one ORCID record, so merging by `work_key` is required for correct counts (see [ARCHITECTURE.md](../../ARCHITECTURE.md#3-work-identity)).
+3. **Authors.** The authors of a publication are the owners of its records together with every contributor whose ORCID iD is linked. Contributors without an ORCID iD are not represented in the graph.
+4. **Counts and weights.** Each publication adds one to the count of each of its authors. Each publication with two or more authors adds one to the weight of the edge between every pair of its authors; pairs are formed from the sorted list of authors, so each edge is counted once regardless of order.
 
-#### 2. **Network Builder** (`network_builder.py`)
+Researchers whose publications in the selection are all single-authored appear as nodes without edges; `get_stats()` reports their number as `solo_authors`.
 
-Contains the business logic:
-
-- `CoauthorshipNetworkBuilder`: Constructs the graph from document data
-  - Deduplicates publications by DOI
-  - Extracts all authors per publication
-  - Computes author productivity (publication counts)
-  - Generates collaboration edges with weights
-
-- `MongoDBNetworkExtractor`: Handles MongoDB queries and extraction
-  - Executes aggregation pipeline
-  - Filters by year range
-  - Delegates to builder for graph construction
-
-#### 3. **Aggregator** (`coauthorship_aggregator.py`)
-
-Main interface for the system:
-
-- `CoauthorshipAggregator`: High-level API for network computation
-- `get_coauthorship_data()`: Legacy function for backward compatibility
-
-#### 4. **API Server** (`coauthorship_api.py`)
-
-Flask-based REST API:
-
-- `GET /api/coauthorship?startYear=X&endYear=Y`: Returns network data
-- `GET /api/stats?startYear=X&endYear=Y`: Returns network statistics
-- `GET /health`: Health check endpoint
-
-## Key Features
-
-### Correct Deduplication
-
-Publications appearing multiple times in MongoDB (once per author) are correctly deduplicated by DOI. Each publication is counted only once.
-
-### Accurate Productivity Metrics
-
-Author publication counts reflect the number of **unique publications** they contributed to, not the number of database documents.
-
-### Proper Edge Weights
-
-Collaboration edges represent the number of **unique shared publications** between two authors.
-
-### Handles Missing ORCIDs
-
-Authors without ORCID IDs (contributors with `orcid_id: null`) are excluded from the graph, as required for network analysis.
-
-### Solo and Collaborative Works
-
-- Solo-author publications contribute to node weights (productivity)
-- Multi-author publications contribute to both node weights AND edge weights
-- The system correctly handles mixed scenarios
-
-## Data Flow
-
-```
-MongoDB Documents
-    ↓
-MongoDBNetworkExtractor (queries by year range)
-    ↓
-CoauthorshipNetworkBuilder (processes documents)
-    ↓
-    1. Group by DOI → Unique Publications
-    2. Extract ORCIDs → Author Sets
-    3. Count publications per author → Node Weights
-    4. Generate pairwise collaborations → Edge Weights
-    ↓
-NetworkData (nodes + edges)
-    ↓
-JSON API Response
-```
-
-## Example Usage
-
-### Using the Aggregator Directly
+## Usage
 
 ```python
-from coauthorship_aggregator import CoauthorshipAggregator
-from pymongo import MongoClient
+import os
+from dotenv import load_dotenv
+from src.db.MongoConnection import MongoConnection
+from src.coauthorship.coauthorship_aggregator import CoauthorshipAggregator
 
-# Connect to database
-client = MongoClient("mongodb://localhost:27017")
-db = client["your_database"]
+load_dotenv()
+mongo = MongoConnection(os.getenv("MONGO_CONN"), os.getenv("DB_NAME"))
 
-# Create aggregator
-aggregator = CoauthorshipAggregator(db)
-
-# Get network data
-network_data = aggregator.get_network_data(
-    start_year=2020,
-    end_year=2026
+network = CoauthorshipAggregator(mongo.db).get_network_data(
+    2020, 2025,
+    subjects=["Computer Science"],
+    types=["journal-article"],
 )
+print(len(network["nodes"]), "researchers,", len(network["edges"]), "collaborating pairs")
 
-print(f"Nodes: {len(network_data['nodes'])}")
-print(f"Edges: {len(network_data['edges'])}")
+mongo.close()
 ```
 
-### Using the API
+`get_network_data()` raises `ValueError` if the start year is later than the end year or if either year lies outside 1900 to 2100.
 
-```bash
-# Get network data
-curl "http://localhost:5000/api/coauthorship?startYear=2020&endYear=2026"
-
-# Get statistics
-curl "http://localhost:5000/api/stats?startYear=2020&endYear=2026"
-
-# Health check
-curl "http://localhost:5000/health"
-```
-
-### API Response Format
+Output format:
 
 ```json
 {
-  "nodes": [
-    {
-      "id": "0000-0001-2345-6789",
-      "publications": 5
-    }
-  ],
-  "edges": [
-    {
-      "source": "0000-0001-2345-6789",
-      "target": "0000-0002-3456-7890",
-      "weight": 3
-    }
-  ]
+  "nodes": [{"id": "0000-0001-2345-6789", "publications": 5}],
+  "edges": [{"source": "0000-0001-2345-6789", "target": "0000-0002-3456-7890", "weight": 3}]
 }
 ```
 
-## MongoDB Data Structure
+## Performance
 
-The system expects documents in the `works` collection with the following structure:
+The cost of a request grows with the number of selected works and, for publications with many authors, with the square of the number of authors, because every pair of authors forms an edge. One publication in the dataset lists 231 linked authors and alone contributes 26,565 pairs.
 
-```json
-{
-  "_id": "...",
-  "orcid_id": "0000-0001-2345-6789",
-  "doi": "10.1234/example.doi",
-  "publication_year": 2025,
-  "title": "Example Publication",
-  "contributors": [
-    {
-      "credit_name": "Author Name",
-      "orcid_id": "0000-0002-3456-7890",
-      "role": "author"
-    },
-    {
-      "credit_name": "Another Author",
-      "orcid_id": null,
-      "role": "author"
-    }
-  ]
-}
-```
+Two corrections reduced the time of the unfiltered network for 2020 to 2025 from 34 seconds to approximately 3.5 seconds without altering its content:
 
-**Important Notes:**
+- `NetworkData.get_stats()` previously determined authors without collaborations by scanning all edges for every node. It now collects the identifiers of connected authors in a set, which makes the computation linear in the number of nodes and edges.
+- The extraction projects only `contributors.orcid_id` instead of complete contributor objects.
 
-- Each publication may appear multiple times (once per author with ORCID)
-- The `doi` field is used for deduplication
-- The `orcid_id` field at document level represents the main author
-- The `contributors` array may contain authors with or without ORCIDs
-- Authors without ORCIDs are excluded from the graph
+Networks restricted by subject, type or keyword are built in under one second; the Computer Science network for 2020 to 2026 took 0.3 seconds on 3 October 2026. The web page therefore builds the network only on request, after the user has chosen filters.
 
-## Testing
+## Standalone Server
 
-Run the comprehensive test suite:
+`scripts/coauthorship_api.py` is an earlier standalone Flask server for the network. It is superseded by `run.py`, which serves the network endpoints together with the other pages and the current filters.
 
-```bash
-python test_network.py
-```
+## Limitations
 
-The test suite verifies:
-
-1. ✅ Deduplication of publications by DOI
-2. ✅ Extraction of all authors with ORCID IDs
-3. ✅ Correct publication count computation
-4. ✅ Proper edge generation and weight calculation
-5. ✅ Handling of solo vs. collaborative publications
-
-### Test Results
-
-All tests pass successfully:
-
-```
-================================================================================
-VERIFICATION RESULTS
-================================================================================
-
-1. PUBLICATION DEDUPLICATION:
-   - Documents processed: 3
-   - Unique publications (by DOI): 1
-   - Expected: 1 ✓ PASS
-
-2. AUTHOR EXTRACTION:
-   - Match: ✓ PASS
-
-3. PUBLICATION COUNTS:
-   - All authors have 1 publication: ✓ PASS
-
-4. COLLABORATION EDGES:
-   - Edge pairs match: ✓ PASS
-   - All edge weights are 1: ✓ PASS
-```
-
-## Installation
-
-### Requirements
-
-```bash
-pip install -r requirements.txt
-```
-
-Required packages:
-
-- Flask >= 2.0.0
-- pymongo >= 4.0.0
-- python-dotenv >= 0.19.0
-
-### Environment Configuration
-
-Create a `.env` file:
-
-```env
-MONGO_CONN=mongodb://localhost:27017
-DB_NAME=your_database_name
-```
-
-### Running the API Server
-
-```bash
-python coauthorship_api.py
-```
-
-The server will start on `http://0.0.0.0:5000`
-
-## Comparison with Original Implementation
-
-### Original Issues
-
-1. **Overcounting**: The original code incremented author counts for each document, leading to publications being counted multiple times
-2. **No deduplication**: Publications weren't properly grouped by DOI
-3. **Procedural approach**: Logic was scattered across functions
-
-### Improvements in OOP Version
-
-1. **Correct counting**: Publications are deduplicated by DOI before counting
-2. **Clean architecture**: Separation of concerns with clear class responsibilities
-3. **Testable**: Easy to unit test with mock data
-4. **Maintainable**: Changes to logic are isolated in specific classes
-5. **Extensible**: Easy to add new features (filters, weights, metrics)
-
-## Future Enhancements
-
-Potential improvements that can be added:
-
-1. **Institution Filtering**: Filter by author institutions
-2. **Citation Weights**: Weight edges by citation counts
-3. **Temporal Analysis**: Track network evolution over time
-4. **Community Detection**: Identify research communities
-5. **Author Enrichment**: Add author names, affiliations, etc.
-6. **Caching**: Cache network data for frequently requested ranges
-7. **Graph Export**: Export to GraphML, GEXF, or other formats
-
-## License
-
-MIT License
-
-## Authors
-
-Refactored OOP implementation by Claude
-Original concept based on user requirements
+- Researchers are identified only through ORCID iDs. Co-authors without an ORCID iD, or whose profile was not harvested and linked, are absent from the graph.
+- Records of one publication that do not share a `work_key` (for example, distinct DOIs for a preprint and the published article) are treated as separate publications.
+- Nodes carry ORCID iDs only; researcher names are not part of the response.
