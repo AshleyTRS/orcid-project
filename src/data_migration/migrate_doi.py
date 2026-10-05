@@ -2,7 +2,10 @@
 Migration: Extract DOI from external_ids and add as top-level field.
 
 Extracts the DOI value from the external_ids array and stores it as a 
-top-level 'doi' field in each works document.
+top-level 'doi' field in each works document. Only DOIs of the work itself
+count: a DOI with relationship "part-of" (the book a chapter is in) or
+"version-of" is skipped, and a stored doi without a self DOI behind it is removed.
+Identifiers harvested before relationships were stored count as self.
 """
 import logging
 from datetime import datetime, timezone
@@ -41,7 +44,10 @@ def migrate_doi(collection):
                                 "input": "$external_ids",
                                 "as": "ext_id",
                                 "cond": {
-                                    "$eq": ["$$ext_id.type", "doi"]
+                                    "$and": [
+                                        {"$eq": ["$$ext_id.type", "doi"]},
+                                        {"$eq": [{"$ifNull": ["$$ext_id.relationship", "self"]}, "self"]}
+                                    ]
                                 }
                             }
                         },
@@ -90,10 +96,22 @@ def migrate_doi(collection):
                 logger.error(f"Error updating document {doc['_id']}: {str(e)}")
                 errors += 1
         
-        logger.info(f"DOI migration completed. Updated: {updated_count}, Errors: {errors}")
+        # A DOI taken earlier from a part-of identifier does not identify this work
+        removed = collection.update_many(
+            {
+                "doi": {"$exists": True},
+                "external_ids": {"$not": {"$elemMatch": {
+                    "type": "doi", "relationship": {"$in": [None, "self"]}
+                }}}
+            },
+            {"$unset": {"doi": ""}}
+        ).modified_count
+
+        logger.info(f"DOI migration completed. Updated: {updated_count}, Removed: {removed}, Errors: {errors}")
         return {
             "status": "success",
             "updated": updated_count,
+            "removed": removed,
             "errors": errors
         }
     

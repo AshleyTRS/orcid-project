@@ -8,7 +8,7 @@ harvested; `work_key` marks which ones are the same work so analytics count
 each work once. See src/works/work_key.py for the matching rules.
 
 Safe to re-run: only documents whose key or count changes are written.
-Run after migrate_doi and link_contributors (it reads both).
+Run after add_orcid_groups, migrate_doi and link_contributors (it reads all three).
 """
 import logging
 import sys

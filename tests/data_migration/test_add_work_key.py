@@ -12,7 +12,9 @@ from src.works.work_key import (
     compute_work_key,
     normalize_doi,
     normalize_title,
+    self_ids,
     unique_works_stages,
+    work_doi,
 )
 
 BASE = {"orcid_id": "0000-0000-0000-0001", "put_code": 1, "publication_year": 2020}
@@ -80,10 +82,27 @@ class TestAssignWorkKeys:
         keys = assign_work_keys(docs)
         assert keys[1] == keys[2] == "doi:10.9/abc"
 
-    def test_different_year_is_not_linked(self):
+    def test_year_within_tolerance_is_linked(self):
+        # online-first vs print year
         docs = [
             {"_id": 1, **BASE, "title": "Soil carbon in forests", "doi": "10.9/abc"},
             {"_id": 2, **BASE, "put_code": 2, "title": "Soil carbon in forests", "publication_year": 2021},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] == keys[2] == "doi:10.9/abc"
+
+    def test_missing_year_is_linked(self):
+        docs = [
+            {"_id": 1, **BASE, "title": "Soil carbon in forests", "doi": "10.9/abc"},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Soil carbon in forests", "publication_year": None},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] == keys[2]
+
+    def test_distant_year_is_not_linked(self):
+        docs = [
+            {"_id": 1, **BASE, "title": "Soil carbon in forests", "doi": "10.9/abc"},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Soil carbon in forests", "publication_year": 2022},
         ]
         keys = assign_work_keys(docs)
         assert keys[2] != keys[1]
@@ -102,7 +121,140 @@ class TestAssignWorkKeys:
             {"_id": 2, **BASE, "put_code": 2, "title": "Results", "doi": "10.1/b"},
             {"_id": 3, **BASE, "put_code": 3, "title": "Results"},
         ]
-        assert assign_work_keys(docs)[3].startswith("title:")
+        keys = assign_work_keys(docs)
+        assert keys[3].startswith("title:")
+        assert len(set(keys.values())) == 3
+
+    def test_long_title_links_across_authors(self):
+        title = "A long and distinctive research article title about soils"
+        docs = [
+            {"_id": 1, **BASE, "title": title, "doi": "10.9/abc"},
+            {"_id": 2, **BASE, "orcid_id": "other", "put_code": 2, "title": title},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] == keys[2] == "doi:10.9/abc"
+
+    def test_same_title_with_different_dois_stays_separate(self):
+        title = "A long and distinctive research article title about soils"
+        docs = [
+            {"_id": 1, **BASE, "title": title, "doi": "10.9/preprint"},
+            {"_id": 2, **BASE, "put_code": 2, "title": title, "doi": "10.9/article"},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] != keys[2]
+
+    def test_orcid_group_links_records_with_similar_titles(self):
+        docs = [
+            {"_id": 1, **BASE, "title": "Population structure and spatial distribution of cacti", "orcid_group": "g1"},
+            {"_id": 2, **BASE, "put_code": 2, "orcid_group": "g1",
+             "title": "Population structure and spatial distributions of cactus species"},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] == keys[2]
+
+    def test_orcid_group_with_identical_title_links_distant_years(self):
+        docs = [
+            {"_id": 1, **BASE, "title": "Un primer paso a la simulacion", "orcid_group": "g1", "publication_year": 2016},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Un primer paso a la simulación", "orcid_group": "g1",
+             "publication_year": 2019},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] == keys[2]
+
+    def test_orcid_group_alone_does_not_link_different_titles(self):
+        # chapters an author grouped by marking the book's ISBN as their own identifier
+        docs = [
+            {"_id": 1, **BASE, "title": "Religion y migracion el albergue", "orcid_group": "g1"},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Infancia y juventud necesidades", "orcid_group": "g1"},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] != keys[2]
+
+    def test_record_listing_many_dois_does_not_link_them(self):
+        pasted = [{"type": "doi", "value": f"10.1/{c}", "relationship": "self"} for c in "abc"]
+        docs = [
+            {"_id": 1, **BASE, "title": "The social conditions of preeclampsia", "external_ids": pasted},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Cortisol as a predictor", "doi": "10.1/a"},
+            {"_id": 3, **BASE, "put_code": 3, "title": "Breastfeeding and diarrhoea", "doi": "10.1/b"},
+        ]
+        keys = assign_work_keys(docs)
+        assert len(set(keys.values())) == 3
+
+    def test_shared_scopus_id_links_records_across_authors(self):
+        eid = [{"type": "eid", "value": "2-s2.0-1", "relationship": "self"}]
+        docs = [
+            {"_id": 1, **BASE, "title": "Soil carbon", "external_ids": eid},
+            {"_id": 2, **BASE, "orcid_id": "other", "put_code": 2, "title": "Soil carbon!", "external_ids": eid},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] == keys[2]
+
+    def test_part_of_identifiers_never_link(self):
+        book = [{"type": "doi", "value": "10.1/book", "relationship": "part-of"},
+                {"type": "isbn", "value": "978-1", "relationship": "part-of"}]
+        docs = [
+            {"_id": 1, **BASE, "title": "Chapter one on silver recovery", "external_ids": book},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Chapter two on silver leaching", "external_ids": book},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] != keys[2]
+        assert not keys[1].startswith("doi:")
+
+    def test_typo_level_title_difference_is_linked(self):
+        docs = [
+            {"_id": 1, **BASE, "title": "Presencia de Spauligodon sp. en algunas especies de Sceloporus"},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Presencia de Spauligodon sp en algunas species de Sceloporus"},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] == keys[2]
+
+    def test_titles_differing_in_numbers_stay_separate(self):
+        docs = [
+            {"_id": 1, **BASE, "title": "Gestion del conocimiento perspectiva multidisciplinaria volumen 41"},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Gestion del conocimiento perspectiva multidisciplinaria volumen 34"},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] != keys[2]
+
+    def test_titles_differing_in_roman_numerals_stay_separate(self):
+        docs = [
+            {"_id": 1, **BASE, "title": "Las comunidades indigenas en Hidalgo Zimapan vol II"},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Las comunidades indigenas en Hidalgo Zimapan vol III"},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] != keys[2]
+
+    def test_typo_link_never_crosses_authors(self):
+        docs = [
+            {"_id": 1, **BASE, "title": "Presencia de Spauligodon sp. en algunas especies de Sceloporus"},
+            {"_id": 2, **BASE, "orcid_id": "other", "put_code": 2,
+             "title": "Presencia de Spauligodon sp en algunas species de Sceloporus"},
+        ]
+        keys = assign_work_keys(docs)
+        assert keys[1] != keys[2]
+
+    def test_keys_do_not_depend_on_input_order(self):
+        docs = [
+            {"_id": 1, **BASE, "title": "Soil carbon in forests", "doi": "10.9/abc"},
+            {"_id": 2, **BASE, "put_code": 2, "title": "Soil carbon in forests", "publication_year": None},
+            {"_id": 3, **BASE, "put_code": 3, "title": "Another work entirely"},
+        ]
+        assert assign_work_keys(docs) == assign_work_keys(list(reversed(docs)))
+
+
+class TestSelfIds:
+    def test_relationship_missing_counts_as_self(self):
+        doc = {"external_ids": [{"type": "doi", "value": "10.1/A"}]}
+        assert self_ids(doc) == {("doi", "10.1/a")}
+
+    def test_weak_and_part_of_identifiers_are_ignored(self):
+        doc = {"external_ids": [
+            {"type": "issn", "value": "1234-5678", "relationship": "part-of"},
+            {"type": "doi", "value": "10.1/book", "relationship": "part-of"},
+            {"type": "eid", "value": "2-s2.0-9", "relationship": "self"},
+        ]}
+        assert self_ids(doc) == {("eid", "2-s2.0-9")}
+        assert work_doi(doc) is None
 
 
 class TestUniqueWorksStages:

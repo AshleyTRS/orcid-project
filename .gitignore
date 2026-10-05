@@ -56,3 +56,6 @@ instance/
 
 # MCP server configuration
 .mcp.json
+
+# Playwright MCP browser-test output (page snapshots, screenshots, console logs)
+.playwright-mcp/

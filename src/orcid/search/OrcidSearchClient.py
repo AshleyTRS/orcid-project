@@ -100,6 +100,19 @@ class OrcidSearchClient:
         return data
 
     """
+    Fetch the work summaries of an ORCID record, grouped the way ORCID groups
+    duplicates. One request per author. Returns the raw JSON response.
+    """
+    def get_works(self, orcid_id: str) -> dict:
+        url = self.endpoint + "/" + orcid_id + "/works"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+
+        time.sleep(self.rate_limit_delay)
+
+        return response.json()
+
+    """
         Fetch a single work record for a given ORCID and put-code.
         Returns the raw JSON response.
     """

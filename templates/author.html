@@ -7,6 +7,7 @@
     <title>Author - UAEH Researchers Network</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="/static/styles/main.css">
+    <script src="/static/js/author-common.js"></script>
 </head>
 
 <body>
@@ -49,6 +50,16 @@
                     <div class="kpi"><div class="kpi-label">Active</div><div class="kpi-value"><span class="skeleton" style="width: 50%"></span></div></div>
                 </div>
 
+                <section class="card" aria-labelledby="collabTitle" id="collabCard" hidden>
+                    <div class="card-header">
+                        <h2 class="card-title" id="collabTitle">Top collaborators</h2>
+                    </div>
+                    <ul class="stat-list" id="collabList"></ul>
+                    <div class="card-footer" id="collabFooter" hidden>
+                        <a class="btn btn-primary btn-sm" id="collabLink" href="#"></a>
+                    </div>
+                </section>
+
                 <section class="card" aria-labelledby="yearTitle">
                     <div class="card-header">
                         <h2 class="card-title" id="yearTitle">Works per year</h2>
@@ -64,6 +75,9 @@
                         <h2 class="card-title" id="topicsTitle">Topics</h2>
                     </div>
                     <ul class="stat-list" id="topicList"></ul>
+                    <div class="card-footer" id="topicsFooter" hidden>
+                        <button type="button" class="btn btn-secondary btn-sm" id="topicsAllBtn" aria-haspopup="dialog"></button>
+                    </div>
                 </section>
 
                 <section class="card" aria-labelledby="typesTitle">
@@ -71,6 +85,9 @@
                         <h2 class="card-title" id="typesTitle">Publication types</h2>
                     </div>
                     <ul class="stat-list" id="typeList"></ul>
+                    <div class="card-footer" id="typesFooter" hidden>
+                        <button type="button" class="btn btn-secondary btn-sm" id="typesAllBtn" aria-haspopup="dialog"></button>
+                    </div>
                 </section>
             </aside>
 
@@ -110,17 +127,8 @@
     <script>
         const ORCID_ID = document.getElementById('authorPage').dataset.orcid;
         const PAGE_SIZE = 20;
-        const MAX_LISTED_AUTHORS = 6;
         const MAX_VISIBLE_AFFILIATIONS = 5;
         const SORTS = ['newest', 'oldest', 'title'];
-
-        const svgIcon = paths => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
-        const ICONS = {
-            pdf: svgIcon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>'),
-            external: svgIcon('<path d="M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>'),
-            search: svgIcon('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
-            alert: svgIcon('<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>')
-        };
 
         Chart.defaults.font.family = "'Inter', sans-serif";
         Chart.defaults.color = '#475569';
@@ -130,22 +138,6 @@
         const state = readStateFromUrl();
         let latestWorksRequest = 0;
         let perYearChart = null;
-
-        function escapeHtml(value) {
-            return String(value ?? '')
-                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        }
-
-        function formatType(type) {
-            if (!type) return '';
-            const text = type.replace(/[-_]/g, ' ');
-            return text.charAt(0).toUpperCase() + text.slice(1);
-        }
-
-        function emptyState(icon, html) {
-            return `<div class="empty-state"><div class="empty-state-icon">${ICONS[icon]}</div><div class="empty-state-text">${html}</div></div>`;
-        }
 
         // ---- URL state: ?page=2&sort=oldest&oa=1 (shareable, works with Back/Forward)
 
@@ -216,7 +208,7 @@
             document.title = 'Author not found - UAEH Researchers Network';
             el('authorName').textContent = 'Author not found';
             el('authorLayout').innerHTML = `<div class="card">${emptyState('search',
-                `No researcher with ORCID iD ${escapeHtml(ORCID_ID)} is in this dataset.<br><a href="/">Search for researchers</a>`)}</div>`;
+                `No researcher affiliated with the Universidad Autónoma del Estado de Hidalgo has ORCID iD ${escapeHtml(ORCID_ID)} in this dataset.<br><a href="/">Search for researchers</a>`)}</div>`;
         }
 
         function renderProfile(p) {
@@ -246,22 +238,68 @@
             const oaShare = s.works ? Math.round((100 * s.open_access) / s.works) : 0;
             const years = s.first_year ? (s.first_year === s.last_year ? `${s.first_year}` : `${s.first_year}–${s.last_year}`) : '—';
             const kpis = [
-                ['Works', s.works.toLocaleString(), p.orcid_works_count != null ? `${p.orcid_works_count.toLocaleString()} ORCID records` : 'unique works'],
-                ['Open access', s.open_access.toLocaleString(), `${oaShare}% of works`],
+                ['Works', s.works.toLocaleString(), s.works === 1 ? 'published work' : 'published works'],
+                ['Open access', s.open_access.toLocaleString(), `${oaShare}% of published works`],
                 ['Co-authors', s.coauthors.toLocaleString(), 'with an ORCID iD'],
                 ['Active', years, s.first_year ? `${s.last_year - s.first_year + 1} years` : '']
             ];
-            el('kpiGrid').innerHTML = kpis.map(([label, value, note]) => `
-                <div class="kpi">
-                    <div class="kpi-label">${label}</div>
-                    <div class="kpi-value">${escapeHtml(value)}</div>
-                    <div class="kpi-note">${escapeHtml(note)}</div>
-                </div>`).join('');
+            const collabUrl = s.coauthors ? authorCollaborationUrl(p.orcid_id, s.first_year, s.last_year) : null;
+            el('kpiGrid').innerHTML = kpis.map(([label, value, note]) => {
+                // The co-authors tile opens the author's collaboration page
+                if (label === 'Co-authors' && collabUrl) {
+                    return `
+                        <a class="kpi kpi-link" href="${collabUrl}" aria-label="Co-authors: ${escapeHtml(value)}. View collaborations">
+                            <div class="kpi-label">${label}</div>
+                            <div class="kpi-value">${escapeHtml(value)}</div>
+                            <div class="kpi-note kpi-link-note">View collaborations ${ICONS.arrowRight}</div>
+                        </a>`;
+                }
+                return `
+                    <div class="kpi">
+                        <div class="kpi-label">${label}</div>
+                        <div class="kpi-value">${escapeHtml(value)}</div>
+                        <div class="kpi-note">${escapeHtml(note)}</div>
+                    </div>`;
+            }).join('');
             el('kpiGrid').setAttribute('aria-busy', 'false');
+            renderTopCollaborators(p, collabUrl);
 
             renderPerYear(p.per_year);
-            renderBreakdown(el('topicList'), p.topics, value => value, 'No topics recorded.');
-            renderBreakdown(el('typeList'), p.types, formatType, 'No types recorded.');
+            renderBreakdown(el('topicList'), p.topics, value => value, 'No topics recorded.', 'topics');
+            renderBreakdown(el('typeList'), p.types, formatType, 'No types recorded.', 'types');
+            setupViewAll('topics', p.topics_total, el('topicsFooter'), el('topicsAllBtn'));
+            setupViewAll('types', p.types_total, el('typesFooter'), el('typesAllBtn'));
+        }
+
+        // Strongest co-authors, linked to their author page (UAEH) or ORCID record (others)
+        function renderTopCollaborators(p, collabUrl) {
+            const top = p.top_collaborators || [];
+            el('collabCard').hidden = false;
+            if (!top.length) {
+                el('collabList').innerHTML = '<li class="stat-item"><span class="stat-label">No co-authors with an ORCID iD on these works.</span></li>';
+                el('collabFooter').hidden = true;
+                return;
+            }
+            const max = top[0].shared_works;
+            el('collabList').innerHTML = top.map(c => {
+                const name = escapeHtml(c.name || c.orcid_id);
+                const link = c.in_dataset
+                    ? `<a class="stat-label stat-link" href="/author/${encodeURIComponent(c.orcid_id)}">${name}</a>`
+                    : `<a class="stat-label stat-link" href="https://orcid.org/${encodeURIComponent(c.orcid_id)}" target="_blank" rel="noopener noreferrer">${name}<span class="visually-hidden"> (ORCID, opens in a new tab)</span></a>`;
+                return `
+                    <li class="stat-item">
+                        <div style="flex: 1; min-width: 0;">
+                            ${link}
+                            <div class="stat-bar"><div class="stat-bar-fill" style="width: ${(100 * c.shared_works) / max}%"></div></div>
+                        </div>
+                        <div class="stat-value" title="Shared works">${c.shared_works.toLocaleString()}</div>
+                    </li>`;
+            }).join('');
+            el('collabFooter').hidden = !collabUrl;
+            if (collabUrl) {
+                el('collabLink').href = collabUrl;
+                el('collabLink').innerHTML = `${ICONS.network}Explore all ${p.stats.coauthors.toLocaleString()} collaborations`;
+            }
         }
 
         function inlineList(values) {
@@ -309,7 +347,8 @@
             });
         }
 
-        function renderBreakdown(list, items, label, emptyText) {
+        // Each row links to the author's works filtered by that topic or type
+        function renderBreakdown(list, items, label, emptyText, facet) {
             if (!items.length) {
                 list.innerHTML = `<li class="stat-item"><span class="stat-label">${emptyText}</span></li>`;
                 return;
@@ -318,11 +357,47 @@
             list.innerHTML = items.map(item => `
                 <li class="stat-item">
                     <div style="flex: 1; min-width: 0;">
-                        <div class="stat-label">${escapeHtml(label(item.value))}</div>
+                        <a class="stat-label stat-link" href="${authorWorksUrl(ORCID_ID, { [facet]: [item.value] })}">${escapeHtml(label(item.value))}</a>
                         <div class="stat-bar"><div class="stat-bar-fill" style="width: ${(100 * item.count) / max}%"></div></div>
                     </div>
                     <div class="stat-value">${item.count.toLocaleString()}</div>
                 </li>`).join('');
+        }
+
+        // ---- "View all" dialogs: every topic / type, Apply opens the filtered works page
+
+        let allFacets = null;
+
+        async function loadAllFacets() {
+            if (!allFacets) {
+                const response = await fetch(`/api/authors/${encodeURIComponent(ORCID_ID)}/facets`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                allFacets = await response.json();
+            }
+            return allFacets;
+        }
+
+        function setupViewAll(facet, total, footer, button) {
+            footer.hidden = !total;
+            if (!total) return;
+            button.textContent = `View all ${total.toLocaleString()} ${facet}`;
+            button.onclick = async () => {
+                button.disabled = true;
+                try {
+                    const facets = await loadAllFacets();
+                    openFacetDialog({
+                        noun: facet,
+                        items: facets[facet],
+                        format: facet === 'types' ? formatType : v => v,
+                        onApply: values => { location.href = authorWorksUrl(ORCID_ID, { [facet]: values }); }
+                    });
+                } catch (error) {
+                    console.error(`Error loading ${facet}:`, error);
+                    button.textContent = `Unable to load ${facet}. Try again`;
+                } finally {
+                    button.disabled = false;
+                }
+            };
         }
 
         // ---- Works
@@ -371,40 +446,6 @@
             } finally {
                 if (requestId === latestWorksRequest) workList.setAttribute('aria-busy', 'false');
             }
-        }
-
-        function renderWork(work) {
-            const title = escapeHtml(work.title || 'Untitled work');
-            const titleHtml = work.doi
-                ? `<a href="https://doi.org/${encodeURI(work.doi)}" target="_blank" rel="noopener noreferrer">${title}<span class="visually-hidden"> (opens in a new tab)</span></a>`
-                : title;
-            const meta = [work.publication_year, formatType(work.type)].filter(Boolean).map(escapeHtml);
-            if (work.journal_title) meta.push(`<em>${escapeHtml(work.journal_title)}</em>`);
-
-            const names = work.contributors;
-            let authors = names.slice(0, MAX_LISTED_AUTHORS).join(', ');
-            if (names.length > MAX_LISTED_AUTHORS) authors += ` +${names.length - MAX_LISTED_AUTHORS} more`;
-
-            // Only direct PDF/download links get a button; open-access landing pages
-            // are still reachable through the title's DOI link.
-            let action = '';
-            if (work.oa_url && work.oa_is_pdf) {
-                action = `
-                    <a class="btn btn-secondary btn-sm work-oa-btn" href="${escapeHtml(work.oa_url)}" target="_blank" rel="noopener noreferrer"
-                       aria-label="PDF: ${title} (opens in a new tab)">
-                        ${ICONS.pdf}PDF${ICONS.external}
-                    </a>`;
-            }
-
-            return `
-                <li class="work-item">
-                    <div class="work-main">
-                        <h3 class="work-title">${titleHtml}</h3>
-                        ${meta.length ? `<div class="work-meta">${meta.join(' · ')}</div>` : ''}
-                        ${authors ? `<div class="work-authors">${escapeHtml(authors)}</div>` : ''}
-                    </div>
-                    ${action}
-                </li>`;
         }
 
         function changeWorks(update) {

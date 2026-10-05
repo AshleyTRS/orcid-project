@@ -8,9 +8,14 @@ Runs all migrations sequentially:
 4. enrich_institutions - Add institution information
 5. link_contributors - Link contributors to ORCID profiles
 6. add_work_key - Identify duplicate records of the same work, count unique works
-7. add_author_count - Precompute author counts
-8. create_indexes - Create optimized indexes
-9. drop_unused_indexes - Remove obsolete indexes
+7. flag_affiliation - Flag UAEH researchers and works (others are kept but hidden)
+8. add_author_count - Precompute author counts
+9. create_indexes - Create optimized indexes
+10. drop_unused_indexes - Remove obsolete indexes
+
+add_orcid_groups (ORCID grouping and identifier relationships, used by
+migrate_doi and add_work_key) calls the ORCID API and is run on its own first:
+    python src/data_migration/add_orcid_groups.py
 """
 import logging
 import sys
@@ -29,6 +34,7 @@ from src.data_migration.merge_metadata import merge_metadata, merge_open_access
 from src.data_migration.enrich_institutions import enrich_institutions
 from src.data_migration.link_contributors import link_contributors
 from src.data_migration.add_work_key import add_work_key
+from src.data_migration.flag_affiliation import flag_affiliation
 from src.data_migration.add_author_count import add_author_count
 from src.data_migration.create_indexes import create_indexes
 from src.data_migration.drop_unused_indexes import drop_unused_indexes
@@ -132,17 +138,22 @@ class MigrationRunner:
                 (self.mongo.works(), self.mongo.orcids())
             ),
             (
-                "7. Add precomputed author_count",
+                "7. Flag UAEH researchers and works",
+                flag_affiliation,
+                (self.mongo.works(), self.mongo.orcids())
+            ),
+            (
+                "8. Add precomputed author_count",
                 add_author_count,
                 (self.mongo.works(),)
             ),
             (
-                "8. Create optimized indexes",
+                "9. Create optimized indexes",
                 create_indexes,
                 (self.mongo.works(),)
             ),
             (
-                "9. Drop unused indexes",
+                "10. Drop unused indexes",
                 drop_unused_indexes,
                 (self.mongo.works(),)
             ),
