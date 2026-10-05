@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from pymongo.errors import DuplicateKeyError
 from typing import List
 from ..models.OrcidProfile import OrcidProfile
+from ..affiliation import AFFILIATED_AUTHOR, is_uaeh_affiliated
 
 
 class OrcidStorage:
@@ -21,6 +22,8 @@ class OrcidStorage:
                     "other_names": profile.other_names,
                     "emails": profile.emails,
                     "institution_names": profile.institution_names,
+                    # The search can match profiles that only mention UAEH; they are kept but hidden
+                    "uaeh_affiliated": is_uaeh_affiliated(profile.institution_names),
                     "discovered_at": datetime.now(timezone.utc),
                     "harvested": False
                 })
@@ -28,8 +31,9 @@ class OrcidStorage:
                 pass  # already stored
     
     def find_unharvested(self, limit=None):
+        """Affiliated researchers whose works have not been harvested (others are never shown)."""
         cursor = self.collection.find(
-            {"harvested": False},
+            {"harvested": False, **AFFILIATED_AUTHOR},
             {"orcid_id": 1}
         )
         if limit:

@@ -27,12 +27,15 @@ def main():
         partition_storage=partition_storage
     )
 
-    # Select seed query
+    # Select seed query. The field name must cover every spelling: in
+    # 'field:"A" OR "B"' only "A" is limited to the field and "B" matches any
+    # text on a profile, which is how unaffiliated researchers got in before.
+    # Researchers are also checked when saved (src/orcid/affiliation.py).
     seeds = {
-        "1": '(current-institution-affiliation-name:"Universidad Autónoma del Estado de Hidalgo" OR "Universidad Autonoma del Estado de Hidalgo" OR "UNIVERSIDAD AUTÓNOMA DEL ESTADO DE HIDALGO")',
+        "1": 'affiliation-org-name:("Universidad Autónoma del Estado de Hidalgo" OR "Universidad Autonoma del Estado de Hidalgo" OR "UAEH")',
         "2": 'current-institution-affiliation-name:"Centro de Investigacion en Tecnologias de Informacion y Sistemas"',
         "3": 'current-institution-affiliation-name:"Universidad Autónoma del Estado de Hidalgo" AND given-names:Ashley',
-        "4" : 'current-institution-affiliation-name:"UAEH'
+        "4" : 'current-institution-affiliation-name:"UAEH"'
     }
 
     print("Select query")

@@ -7,8 +7,11 @@ from src.analytics.aggregations import (
     top_keywords,
     value_counts
 )
-from src.analytics.author_profile import get_author_profile, get_author_works, is_valid_orcid
+from src.analytics.author_profile import (
+    get_author_facets, get_author_profile, get_author_works, is_affiliated_author, is_valid_orcid
+)
 from src.coauthorship.coauthorship_aggregator import CoauthorshipAggregator
+from src.coauthorship.constellation import get_constellation
 from src.coauthorship.models import NetworkData, Node, Edge
 from src.db.MongoConnection import MongoConnection
 import os
@@ -35,6 +38,16 @@ def network_view():
     """Co-authorship network visualization page."""
     return render_template('network.html')
 
+@app.route('/network/collaboration')
+def collaboration_view():
+    """
+    Details of the constellation (connected co-author group) around one researcher,
+    opened by clicking a node on the network page. Takes the network's filters plus orcid.
+    """
+    if not is_valid_orcid(request.args.get('orcid', '')):
+        abort(404)
+    return render_template('collaboration.html')
+
 @app.route('/json_view')
 def json_view():
     """Raw JSON viewer for /api/coauthorship."""
@@ -57,6 +70,27 @@ def author_view(orcid_id):
     if not is_valid_orcid(orcid_id):
         abort(404)
     return render_template('author.html', orcid_id=orcid_id)
+
+@app.route('/author/<orcid_id>/works')
+def author_works_view(orcid_id):
+    """An author's works filtered by topic, type, year and open access (filters live in the URL)."""
+    if not is_valid_orcid(orcid_id):
+        abort(404)
+    return render_template('author_works.html', orcid_id=orcid_id)
+
+def _author_filters():
+    """
+    Read the author works filters: repeated topic and type values, year_from,
+    year_to and oa=1. Raises ValueError if a year is not an integer.
+    """
+    clean = lambda name: [v.strip()[:300] for v in request.args.getlist(name) if v.strip()][:50]
+    return {
+        "topics": clean('topic'),
+        "types": clean('type'),
+        "oa": request.args.get('oa') == '1',
+        "year_from": _optional_int('year_from'),
+        "year_to": _optional_int('year_to'),
+    }
 
 @app.route('/health')
 def health_check():
@@ -112,7 +146,8 @@ def get_author(orcid_id):
                       "first_year": int, "last_year": int},
             "per_year": [{"year": int, "count": int}],
             "topics": [{"value": str, "count": int}],
-            "types": [{"value": str, "count": int}]
+            "types": [{"value": str, "count": int}],
+            "topics_total": int, "types_total": int
         }
     """
     if not is_valid_orcid(orcid_id):
@@ -135,6 +170,9 @@ def get_author_works_list(orcid_id):
         limit (int): Results per page, 1-100 (default: 20)
         sort (str): newest (default), oldest or title
         oa (int): 1 to return only open-access works
+        topic (str, repeatable): only works with any of these topics
+        type (str, repeatable): only works of any of these types
+        year_from, year_to (int): publication year range, inclusive
 
     Response:
         {
@@ -147,16 +185,48 @@ def get_author_works_list(orcid_id):
     if not is_valid_orcid(orcid_id):
         return jsonify({"error": "Invalid ORCID iD"}), 400
     try:
+        if not is_affiliated_author(mongo.db, orcid_id):
+            return jsonify({"error": "Author not found"}), 404
         page = int(request.args.get('page', 1))
         limit = int(request.args.get('limit', 20))
+        filters = _author_filters()
         result = get_author_works(
             mongo.db, orcid_id, page=page, limit=limit,
             sort=request.args.get('sort', 'newest'),
-            open_access_only=request.args.get('oa') == '1'
+            open_access_only=filters["oa"],
+            filters=filters
         )
         return jsonify(result)
     except ValueError:
-        return jsonify({"error": "Invalid page or limit parameter"}), 400
+        return jsonify({"error": "Invalid page, limit or year parameter"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/authors/<orcid_id>/facets')
+def get_author_facets_list(orcid_id):
+    """
+    Every topic, type and year of an author's works with counts, for the filter sidebar.
+
+    Query Parameters: topic, type, year_from, year_to, oa (as for /works).
+    Each facet is counted with the other filters applied but not its own.
+
+    Response:
+        {
+            "total": int,
+            "topics": [{"value": str, "count": int}],
+            "types": [{"value": str, "count": int}],
+            "years": [{"year": int, "count": int}],
+            "open_access": {"count": int, "total": int}
+        }
+    """
+    if not is_valid_orcid(orcid_id):
+        return jsonify({"error": "Invalid ORCID iD"}), 400
+    try:
+        if not is_affiliated_author(mongo.db, orcid_id):
+            return jsonify({"error": "Author not found"}), 404
+        return jsonify(get_author_facets(mongo.db, orcid_id, _author_filters()))
+    except ValueError:
+        return jsonify({"error": "Invalid year parameter"}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -342,6 +412,31 @@ def get_coauthorship():
             start_year, end_year, **_network_filters()
         )
         return jsonify(data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/coauthorship/constellation')
+def get_coauthorship_constellation():
+    """
+    Get the constellation around one researcher under the network filters.
+
+    Query Parameters:
+        orcid (str): The researcher whose constellation to describe (required)
+        startYear, endYear, type, subject, keyword, institute: as for /api/coauthorship
+
+    Response: see src.coauthorship.constellation.get_constellation
+    """
+    orcid_id = request.args.get('orcid', '')
+    if not is_valid_orcid(orcid_id):
+        return jsonify({"error": "Invalid ORCID iD"}), 400
+    try:
+        start_year, end_year = _parse_year_range()
+        result = get_constellation(mongo.db, orcid_id, start_year, end_year, **_network_filters())
+        if result is None:
+            return jsonify({"error": "This researcher has no works matching these filters"}), 404
+        return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:

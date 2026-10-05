@@ -15,6 +15,8 @@ class Work:
     visibility: Optional[str] = None
     # Identity shared by duplicate records of the same work (src/works/work_key.py)
     work_key: Optional[str] = None
+    # ORCID's group of this author's entries for the same work (src/works/work_key.py)
+    orcid_group: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -27,5 +29,6 @@ class Work:
             "external_ids": self.external_ids,
             "contributors": self.contributors,
             "visibility": self.visibility,
-            "work_key": self.work_key
+            "work_key": self.work_key,
+            "orcid_group": self.orcid_group
         }

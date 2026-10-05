@@ -18,6 +18,7 @@ import unicodedata
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
 
+from src.orcid.affiliation import AFFILIATED_AUTHOR, UAEH_WORK
 from src.works.work_key import unique_works_stages
 
 logging.basicConfig(level=logging.INFO)
@@ -79,7 +80,8 @@ def build_works_match(
     institutes: Optional[List[str]] = None
 ) -> Dict:
     """
-    Build a ``$match`` filter for works (documents that have a work_key).
+    Build a ``$match`` filter for UAEH works (documents that have a work_key
+and a UAEH author, see src/orcid/affiliation.py).
 
     Shared by the works search and the co-authorship network so both apply
     filters identically. Every argument is optional; list arguments match
@@ -96,7 +98,7 @@ def build_works_match(
         institutes: Institute names, matched as accent-insensitive
             substrings of the affiliated institution names
     """
-    conditions = [{"work_key": {"$ne": None}}]
+    conditions = [{"work_key": {"$ne": None}}, UAEH_WORK]
 
     year_range = {}
     if start_year is not None:
@@ -166,6 +168,7 @@ def publications_per_year(
         # Build match stage to filter by year range and exclude invalid values
         match_filters = {
             "work_key": {"$ne": None},
+            **UAEH_WORK,
             "publication_year": {"$exists": True, "$ne": None}
         }
 
@@ -244,6 +247,7 @@ def publications_per_institution_per_year(
         
         # Build match stage
         match_filters = {
+            **UAEH_WORK,
             "publication_year": {"$exists": True, "$ne": None},
             "institutions": {"$exists": True, "$ne": []}
         }
@@ -329,6 +333,7 @@ def publications_per_type(
         
         # Build match stage
         match_filters = {
+            **UAEH_WORK,
             "type": {"$exists": True, "$ne": None}
         }
         
@@ -410,7 +415,8 @@ def top_authors(
         
         # Build match stage
         match_filters = {
-            "orcid_id": {"$exists": True, "$ne": None}
+            **UAEH_WORK,
+            "orcid_id": {"$in": db.orcids.distinct("orcid_id", AFFILIATED_AUTHOR)}
         }
         
         if start_year is not None:
@@ -493,6 +499,7 @@ def author_contributor_analysis(
         
         # Build match stage
         match_filters = {
+            **UAEH_WORK,
             "contributors": {"$exists": True, "$ne": []}
         }
         
@@ -513,7 +520,7 @@ def author_contributor_analysis(
             {"$unwind": "$contributors"},
             {
                 "$match": {
-                    "contributors.orcid_id": {"$exists": True, "$ne": None}
+                    "contributors.orcid_id": {"$in": db.orcids.distinct("orcid_id", AFFILIATED_AUTHOR)}
                 }
             },
             {
@@ -586,7 +593,7 @@ def publication_metrics_summary(
         works_collection = db.works
         
         # Build match stage
-        match_filters = {}
+        match_filters = dict(UAEH_WORK)
         
         if start_year is not None:
             match_filters["publication_year"] = {"$gte": start_year}
@@ -715,7 +722,7 @@ def all_authors_details(
         orcids_collection = db.orcids
         
         # Query all documents from orcids collection
-        results = list(orcids_collection.find({}, {
+        results = list(orcids_collection.find(AFFILIATED_AUTHOR, {
             "orcid_id": 1,
             "given_names": 1,
             "family_names": 1,
@@ -798,7 +805,7 @@ def all_authors_details_paginated(
         page = max(1, page)
         skip = (page - 1) * limit
 
-        conditions = [
+        conditions = [AFFILIATED_AUTHOR] + [
             {"$or": [
                 {"given_names": _regex(term)},
                 {"family_names": _regex(term)},
@@ -809,7 +816,7 @@ def all_authors_details_paginated(
         ]
         if institutes:
             conditions.append({"$or": [{"institution_names": _regex(name)} for name in institutes]})
-        match_filter = {"$and": conditions} if conditions else {}
+        match_filter = {"$and": conditions}
 
         # Get total count (for has_next calculation)
         total = orcids_collection.count_documents(match_filter)
@@ -872,7 +879,7 @@ def all_works_details(db) -> List[Dict]:
         works_collection = db.works
 
         cursor = works_collection.find(
-            {"doi": {"$exists": True, "$ne": None}},
+            {"doi": {"$exists": True, "$ne": None}, **UAEH_WORK},
             {
                 "doi": 1,
                 "title": 1,
@@ -1083,7 +1090,7 @@ def value_counts(db, field_path: str, limit: int = 100) -> List[Dict]:
 
     try:
         pipeline = [
-            {"$match": {"work_key": {"$ne": None}, field_path: {"$exists": True, "$ne": None}}},
+            {"$match": {"work_key": {"$ne": None}, **UAEH_WORK, field_path: {"$exists": True, "$ne": None}}},
             {"$group": {"_id": "$work_key", "value": {"$first": f"${field_path}"}}},
             {"$unwind": "$value"},
             {"$group": {"_id": {"work": "$_id", "value": "$value"}}},

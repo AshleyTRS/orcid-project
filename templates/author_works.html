@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Works - UAEH Researchers Network</title>
+    <link rel="stylesheet" href="/static/styles/main.css">
+    <script src="/static/js/author-common.js"></script>
+</head>
+
+<body>
+    {% include '_header.html' %}
+
+    <main class="container" id="worksPage" data-orcid="{{ orcid_id }}">
+        <a href="/author/{{ orcid_id }}" class="back-link" id="backLink">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round" aria-hidden="true">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            <span id="backLabel">Back to author</span>
+        </a>
+
+        <div class="page-header">
+            <div class="eyebrow">
+                <span>Works</span>
+                <a class="badge" href="https://orcid.org/{{ orcid_id }}" target="_blank" rel="noopener noreferrer"
+                    aria-label="ORCID {{ orcid_id }} (opens orcid.org in a new tab)">ORCID {{ orcid_id }}</a>
+            </div>
+            <h1 class="author-name" id="authorName"><span class="skeleton" style="width: 320px; height: 1em"></span></h1>
+        </div>
+
+        <div class="filter-layout">
+            <aside class="facet-sidebar" aria-label="Filters">
+                <section class="card facet-panel" aria-labelledby="yearFacetTitle">
+                    <h2 class="facet-panel-title" id="yearFacetTitle">${ICON:calendar}Year</h2>
+                    <div class="year-histogram" id="yearHistogram" aria-hidden="true"></div>
+                    <form class="year-filter" id="yearForm">
+                        <label class="visually-hidden" for="yearFrom">From year</label>
+                        <input class="input year-filter-input" type="number" id="yearFrom" inputmode="numeric" placeholder="From">
+                        <span class="year-filter-sep" aria-hidden="true">–</span>
+                        <label class="visually-hidden" for="yearTo">To year</label>
+                        <input class="input year-filter-input" type="number" id="yearTo" inputmode="numeric" placeholder="To">
+                        <button type="submit" class="btn btn-secondary btn-sm">Apply</button>
+                    </form>
+                    <p class="field-error" id="yearError" role="alert" hidden></p>
+                </section>
+
+                <section class="card facet-panel" aria-labelledby="oaFacetTitle">
+                    <h2 class="facet-panel-title" id="oaFacetTitle">${ICON:unlock}Open access</h2>
+                    <label class="facet-option">
+                        <input type="checkbox" class="option-checkbox" id="oaFilter">
+                        <span class="option-checkbox-custom" aria-hidden="true"></span>
+                        <span class="facet-option-label">Open access only</span>
+                        <span class="facet-option-count" id="oaCount"></span>
+                    </label>
+                    <div class="oa-meter" aria-hidden="true"><div class="oa-meter-fill" id="oaMeter"></div></div>
+                    <p class="facet-note" id="oaNote"></p>
+                </section>
+
+                <section class="card facet-panel" aria-labelledby="topicFacetTitle">
+                    <h2 class="facet-panel-title" id="topicFacetTitle">${ICON:tag}Topic</h2>
+                    <ul class="facet-options" id="topicOptions" role="list"></ul>
+                    <div class="facet-panel-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" id="topicMoreBtn" aria-haspopup="dialog" hidden>More…</button>
+                    </div>
+                </section>
+
+                <section class="card facet-panel" aria-labelledby="typeFacetTitle">
+                    <h2 class="facet-panel-title" id="typeFacetTitle">${ICON:file}Type</h2>
+                    <ul class="facet-options" id="typeOptions" role="list"></ul>
+                    <div class="facet-panel-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" id="typeMoreBtn" aria-haspopup="dialog" hidden>More…</button>
+                    </div>
+                </section>
+            </aside>
+
+            <section class="card filter-results" aria-labelledby="resultsTitle">
+                <div class="active-filters" id="activeFilters" aria-label="Applied filters" hidden></div>
+
+                <div class="card-header results-header">
+                    <h2 class="card-title" id="resultsTitle" aria-live="polite">
+                        <span class="skeleton" style="width: 120px"></span>
+                    </h2>
+                    <label class="visually-hidden" for="sortSelect">Sort works</label>
+                    <select class="select" id="sortSelect">
+                        <option value="newest">Newest first</option>
+                        <option value="oldest">Oldest first</option>
+                        <option value="title">Title A–Z</option>
+                    </select>
+                </div>
+
+                <ul class="work-list" id="workList" aria-busy="true"></ul>
+
+                <div class="works-footer">
+                    <div class="pagination-info">
+                        Page <span class="pagination-page-num" id="currentPage">1</span>
+                        of <span class="pagination-total-pages" id="totalPages">1</span>
+                    </div>
+                    <div class="pagination-buttons">
+                        <button type="button" class="pagination-btn pagination-prev-btn" id="prevBtn">Previous</button>
+                        <button type="button" class="pagination-btn pagination-next-btn" id="nextBtn">Next</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        const ORCID_ID = document.getElementById('worksPage').dataset.orcid;
+        const PAGE_SIZE = 20;
+        const SIDEBAR_OPTIONS = 8;   // values listed per facet before "More…"
+        const SORTS = ['newest', 'oldest', 'title'];
+        const FACETS = {
+            topics: { param: 'topic', label: 'Topic', format: v => v, list: 'topicOptions', more: 'topicMoreBtn' },
+            types: { param: 'type', label: 'Type', format: formatType, list: 'typeOptions', more: 'typeMoreBtn' }
+        };
+
+        const el = id => document.getElementById(id);
+        const workList = el('workList');
+        let state = readStateFromUrl();
+        let facets = null;
+        let latestRequest = 0;
+
+        // Panel title icons
+        document.querySelectorAll('.facet-panel-title').forEach(title => {
+            title.innerHTML = title.innerHTML.replace(/\$\{ICON:(\w+)\}/, (_, name) => ICONS[name]);
+        });
+
+        // ---- URL state: ?topic=A&topic=B&type=book&oa=1&year_from=2010&year_to=2020&sort=oldest&page=2
+
+        function readStateFromUrl() {
+            const params = new URLSearchParams(location.search);
+            const year = name => {
+                const value = parseInt(params.get(name), 10);
+                return Number.isFinite(value) ? value : null;
+            };
+            return {
+                topics: params.getAll('topic'),
+                types: params.getAll('type'),
+                oa: params.get('oa') === '1',
+                year_from: year('year_from'),
+                year_to: year('year_to'),
+                sort: SORTS.includes(params.get('sort')) ? params.get('sort') : 'newest',
+                page: Math.max(1, parseInt(params.get('page'), 10) || 1)
+            };
+        }
+
+        function filterParams() {
+            const params = new URLSearchParams();
+            state.topics.forEach(t => params.append('topic', t));
+            state.types.forEach(t => params.append('type', t));
+            if (state.oa) params.set('oa', '1');
+            if (state.year_from != null) params.set('year_from', state.year_from);
+            if (state.year_to != null) params.set('year_to', state.year_to);
+            return params;
+        }
+
+        function writeStateToUrl() {
+            const params = filterParams();
+            if (state.sort !== 'newest') params.set('sort', state.sort);
+            if (state.page > 1) params.set('page', state.page);
+            history.pushState(null, '', location.pathname + (params.toString() ? `?${params}` : ''));
+        }
+
+        window.addEventListener('popstate', () => {
+            state = readStateFromUrl();
+            refresh();
+        });
+
+        /** Apply a change: filters reset to page 1, the URL records it, results and counts reload. */
+        function update(changes, { keepPage = false } = {}) {
+            Object.assign(state, changes);
+            if (!keepPage) state.page = 1;
+            writeStateToUrl();
+            refresh();
+        }
+
+        // ---- Author name (header and back link)
+
+        async function loadAuthorName() {
+            try {
+                const response = await fetch(`/api/authors/${encodeURIComponent(ORCID_ID)}`);
+                if (response.status === 404) {
+                    el('authorName').textContent = 'Author not found';
+                    return;
+                }
+                const author = await response.json();
+                el('authorName').textContent = author.name;
+                el('backLabel').textContent = `Back to ${author.name}`;
+                document.title = `Works by ${author.name} - UAEH Researchers Network`;
+            } catch (error) {
+                console.error('Error loading author:', error);
+                el('authorName').textContent = 'Works';
+            }
+        }
+
+        // ---- Facets (sidebar counts)
+
+        async function loadFacets(requestId) {
+            const response = await fetch(`/api/authors/${encodeURIComponent(ORCID_ID)}/facets?${filterParams()}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (requestId !== latestRequest) return;
+            facets = data;
+            renderYearFacet(data.years);
+            renderOaFacet(data.open_access);
+            Object.keys(FACETS).forEach(name => renderOptionFacet(name, data[name]));
+        }
+
+        function renderYearFacet(years) {
+            const histogram = el('yearHistogram');
+            el('yearFrom').value = state.year_from ?? '';
+            el('yearTo').value = state.year_to ?? '';
+            if (!years.length) {
+                histogram.innerHTML = '';
+                el('yearFrom').placeholder = 'From';
+                el('yearTo').placeholder = 'To';
+                return;
+            }
+            const counts = new Map(years.map(y => [y.year, y.count]));
+            const first = years[0].year, last = years[years.length - 1].year;
+            const max = Math.max(...years.map(y => y.count));
+            const inRange = y => (state.year_from == null || y >= state.year_from) && (state.year_to == null || y <= state.year_to);
+            let bars = '';
+            for (let y = first; y <= last; y++) {
+                const count = counts.get(y) || 0;
+                bars += `<span class="year-bar${inRange(y) ? '' : ' is-out'}" style="height: ${count ? Math.max(6, (100 * count) / max) : 0}%" title="${y}: ${count}"></span>`;
+            }
+            histogram.innerHTML = bars;
+            el('yearFrom').placeholder = first;
+            el('yearTo').placeholder = last;
+        }
+
+        function renderOaFacet(oa) {
+            const share = oa.total ? Math.round((100 * oa.count) / oa.total) : 0;
+            el('oaFilter').checked = state.oa;
+            el('oaCount').textContent = oa.count.toLocaleString();
+            el('oaMeter').style.width = `${share}%`;
+            el('oaNote').textContent = `${share}% of ${oa.total.toLocaleString()} works`;
+        }
+
+        /** Checked values first, then the most frequent ones up to SIDEBAR_OPTIONS. */
+        function renderOptionFacet(name, items) {
+            const facet = FACETS[name];
+            const selected = state[name];
+            const counts = new Map(items.map(i => [i.value, i.count]));
+            const shown = [...selected.map(v => ({ value: v, count: counts.get(v) || 0 })),
+                ...items.filter(i => !selected.includes(i.value))]
+                .slice(0, Math.max(SIDEBAR_OPTIONS, selected.length));
+
+            el(facet.list).innerHTML = shown.length ? shown.map(item => `
+                <li>
+                    <label class="facet-option">
+                        <input type="checkbox" class="option-checkbox" value="${escapeHtml(item.value)}" ${selected.includes(item.value) ? 'checked' : ''}>
+                        <span class="option-checkbox-custom" aria-hidden="true"></span>
+                        <span class="facet-option-label">${escapeHtml(facet.format(item.value))}</span>
+                        <span class="facet-option-count">${item.count.toLocaleString()}</span>
+                    </label>
+                </li>`).join('')
+                : `<li class="facet-note">No ${name} for these works.</li>`;
+
+            const more = el(facet.more);
+            more.hidden = items.length <= shown.length;
+            more.textContent = `More… (${items.length.toLocaleString()})`;
+        }
+
+        Object.entries(FACETS).forEach(([name, facet]) => {
+            el(facet.list).addEventListener('change', e => {
+                const values = state[name].filter(v => v !== e.target.value);
+                if (e.target.checked) values.push(e.target.value);
+                update({ [name]: values });
+            });
+            el(facet.more).addEventListener('click', () => {
+                if (!facets) return;
+                openFacetDialog({
+                    noun: name,
+                    items: facets[name],
+                    selected: state[name],
+                    format: facet.format,
+                    allowEmpty: true,
+                    onApply: values => update({ [name]: values })
+                });
+            });
+        });
+
+        el('oaFilter').addEventListener('change', e => update({ oa: e.target.checked }));
+
+        el('yearForm').addEventListener('submit', e => {
+            e.preventDefault();
+            const read = input => input.value.trim() === '' ? null : parseInt(input.value, 10);
+            const from = read(el('yearFrom')), to = read(el('yearTo'));
+            const error = el('yearError');
+            if ((from != null && !Number.isFinite(from)) || (to != null && !Number.isFinite(to))) {
+                error.textContent = 'Enter years as numbers, e.g. 2015.';
+            } else if (from != null && to != null && from > to) {
+                error.textContent = '“From” must be the same as or earlier than “To”.';
+            } else {
+                error.hidden = true;
+                update({ year_from: from, year_to: to });
+                return;
+            }
+            error.hidden = false;
+        });
+
+        // ---- Applied filter chips
+
+        function renderActiveFilters() {
+            const chips = [];
+            Object.entries(FACETS).forEach(([name, facet]) => {
+                state[name].forEach(value => chips.push({
+                    label: `${facet.label}: ${facet.format(value)}`,
+                    remove: () => update({ [name]: state[name].filter(v => v !== value) })
+                }));
+            });
+            if (state.year_from != null || state.year_to != null) {
+                const range = state.year_from != null && state.year_to != null
+                    ? (state.year_from === state.year_to ? `${state.year_from}` : `${state.year_from}–${state.year_to}`)
+                    : state.year_from != null ? `${state.year_from} or later` : `${state.year_to} or earlier`;
+                chips.push({ label: `Year: ${range}`, remove: () => update({ year_from: null, year_to: null }) });
+            }
+            if (state.oa) chips.push({ label: 'Open access', remove: () => update({ oa: false }) });
+
+            const container = el('activeFilters');
+            container.hidden = !chips.length;
+            container.innerHTML = chips.map((chip, i) => `
+                <button type="button" class="filter-chip active removable-chip" data-chip="${i}" aria-label="Remove filter ${escapeHtml(chip.label)}">
+                    <span class="removable-chip-label">${escapeHtml(chip.label)}</span>${ICONS.close}
+                </button>`).join('') +
+                (chips.length > 1 ? '<button type="button" class="link-btn" data-clear>Clear all</button>' : '');
+            container.querySelectorAll('[data-chip]').forEach(btn => {
+                btn.addEventListener('click', () => chips[Number(btn.dataset.chip)].remove());
+            });
+            container.querySelector('[data-clear]')?.addEventListener('click', clearAll);
+        }
+
+        function clearAll() {
+            update({ topics: [], types: [], oa: false, year_from: null, year_to: null });
+        }
+
+        function hasFilters() {
+            return state.topics.length || state.types.length || state.oa || state.year_from != null || state.year_to != null;
+        }
+
+        // ---- Works
+
+        async function loadWorks(requestId) {
+            workList.setAttribute('aria-busy', 'true');
+            el('prevBtn').disabled = el('nextBtn').disabled = true;
+            if (!workList.children.length) {
+                workList.innerHTML = Array.from({ length: 4 }, () => `
+                    <li class="work-item"><div class="work-main">
+                        <span class="skeleton" style="width: 80%; height: 1.1em"></span>
+                        <span class="skeleton" style="width: 45%; margin-top: 8px"></span>
+                    </div></li>`).join('');
+            }
+
+            const params = filterParams();
+            params.set('page', state.page);
+            params.set('limit', PAGE_SIZE);
+            params.set('sort', state.sort);
+
+            try {
+                const response = await fetch(`/api/authors/${encodeURIComponent(ORCID_ID)}/works?${params}`);
+                const data = await response.json().catch(() => ({}));
+                if (requestId !== latestRequest) return;
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+
+                const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+                if (state.page > totalPages) {
+                    state.page = totalPages;
+                    return loadWorks(requestId);
+                }
+                el('resultsTitle').textContent = `${data.total.toLocaleString()} ${data.total === 1 ? 'work' : 'works'}`;
+                el('currentPage').textContent = state.page;
+                el('totalPages').textContent = totalPages;
+                el('prevBtn').disabled = state.page <= 1;
+                el('nextBtn').disabled = !data.has_next;
+
+                if (data.data.length) {
+                    workList.innerHTML = data.data.map(renderWork).join('');
+                } else {
+                    workList.innerHTML = `<li>${emptyState('search', hasFilters()
+                        ? 'No works match all of these filters. Remove a filter or <button type="button" class="link-btn" data-clear-empty>clear all filters</button>.'
+                        : 'No works found for this author.')}</li>`;
+                    workList.querySelector('[data-clear-empty]')?.addEventListener('click', clearAll);
+                }
+            } catch (error) {
+                if (requestId !== latestRequest) return;
+                console.error('Error loading works:', error);
+                el('resultsTitle').textContent = 'Works';
+                workList.innerHTML = `<li>${emptyState('alert', 'Unable to load works. Please try again.')}</li>`;
+            } finally {
+                if (requestId === latestRequest) {
+                    workList.setAttribute('aria-busy', 'false');
+                }
+            }
+        }
+
+        function refresh() {
+            const requestId = ++latestRequest;
+            el('sortSelect').value = state.sort;
+            renderActiveFilters();
+            loadFacets(requestId).catch(error => console.error('Error loading filters:', error));
+            loadWorks(requestId);
+        }
+
+        el('sortSelect').addEventListener('change', e => update({ sort: e.target.value }));
+        el('prevBtn').addEventListener('click', () => {
+            update({ page: state.page - 1 }, { keepPage: true });
+            el('resultsTitle').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
+        el('nextBtn').addEventListener('click', () => {
+            update({ page: state.page + 1 }, { keepPage: true });
+            el('resultsTitle').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
+
+        loadAuthorName();
+        refresh();
+    </script>
+</body>
+
+</html>

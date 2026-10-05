@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collaboration - UAEH Researchers Network</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" crossorigin="anonymous"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="/static/styles/main.css">
+    <script src="/static/js/author-common.js"></script>
+    <script src="/static/js/network-viewed.js"></script>
+</head>
+
+<body>
+    {% include '_header.html' %}
+
+    <main class="container" id="collabPage">
+        <a href="/network" class="back-link" id="backLink">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round" aria-hidden="true">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Back to network
+        </a>
+
+        <div class="page-header">
+            <div class="eyebrow">
+                <span>Collaboration</span>
+                <span class="filter-summary" id="filterSummary"></span>
+            </div>
+            <h1 class="author-name" id="focusName"><span class="skeleton" style="width: 320px; height: 1em"></span></h1>
+            <p class="page-subtitle" id="collabSubtitle"></p>
+        </div>
+
+        <div id="collabContent">
+            <div class="scope-bar" id="scopeBar" hidden>
+                <div class="segmented" role="group" aria-label="Researchers to include">
+                    <button type="button" class="segmented-btn" data-scope="constellation" aria-pressed="true">
+                        Whole constellation <span class="segmented-count" id="countConstellation"></span>
+                    </button>
+                    <button type="button" class="segmented-btn" data-scope="direct" aria-pressed="false">
+                        Direct collaborators <span class="segmented-count" id="countDirect"></span>
+                    </button>
+                </div>
+                <a class="btn btn-secondary btn-sm scope-network-link" id="networkLink" href="/network" hidden></a>
+            </div>
+
+            <div class="kpi-grid kpi-grid-wide" id="kpiGrid" aria-busy="true">
+                <div class="kpi"><div class="kpi-label">Researchers</div><div class="kpi-value"><span class="skeleton" style="width: 50%"></span></div></div>
+                <div class="kpi"><div class="kpi-label">Shared works</div><div class="kpi-value"><span class="skeleton" style="width: 50%"></span></div></div>
+                <div class="kpi"><div class="kpi-label">Collaborating pairs</div><div class="kpi-value"><span class="skeleton" style="width: 50%"></span></div></div>
+                <div class="kpi"><div class="kpi-label">Active</div><div class="kpi-value"><span class="skeleton" style="width: 50%"></span></div></div>
+            </div>
+
+            <div class="collab-layout">
+                <div class="collab-main">
+                    <section class="card" aria-labelledby="mapTitle" id="mapCard">
+                        <div class="card-header">
+                            <h2 class="card-title" id="mapTitle">Constellation map</h2>
+                            <div class="map-legend" aria-hidden="true">
+                                <span class="legend-item"><span class="legend-swatch is-focus"></span>Opened researcher</span>
+                                <span class="legend-item"><span class="legend-swatch"></span>Collaborator</span>
+                            </div>
+                        </div>
+                        <div class="collab-map" id="collabMap"><span class="skeleton" style="height: 100%"></span></div>
+                        <p class="chart-summary" id="mapSummary"></p>
+                    </section>
+
+                    <section class="card" aria-labelledby="pairsTitle">
+                        <div class="card-header">
+                            <h2 class="card-title" id="pairsTitle">Collaborations <span class="status-text" id="pairsCount"></span></h2>
+                        </div>
+                        <p class="card-intro">Every pair of researchers who published together, strongest first.
+                            Select a pair to list the works they share.</p>
+                        <div class="pair-table-wrap">
+                            <table class="pair-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Researchers</th>
+                                        <th scope="col">Shared works</th>
+                                        <th scope="col">Years</th>
+                                        <th scope="col">Main topics</th>
+                                        <th scope="col"><span class="visually-hidden">Works</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pairRows"></tbody>
+                            </table>
+                        </div>
+                        <p class="list-note" id="pairsNote" hidden></p>
+                        <div class="card-footer" id="pairsFooter" hidden>
+                            <button type="button" class="btn btn-secondary btn-sm" id="pairsMore">Show more pairs</button>
+                        </div>
+                    </section>
+
+                    <section class="card" aria-labelledby="worksTitle" id="worksCard">
+                        <div class="card-header">
+                            <h2 class="card-title" id="worksTitle">Shared works <span class="status-text" id="worksCount"></span></h2>
+                        </div>
+                        <div class="active-filters" id="selectionBar" aria-label="Selection" hidden></div>
+                        <ul class="work-list" id="workList" aria-live="polite"></ul>
+                        <p class="list-note" id="worksNote" hidden></p>
+                        <div class="card-footer" id="worksFooter" hidden>
+                            <button type="button" class="btn btn-secondary btn-sm" id="worksMore">Show more works</button>
+                        </div>
+                    </section>
+                </div>
+
+                <aside class="collab-aside" aria-label="Constellation summary">
+                    <section class="card" aria-labelledby="membersTitle">
+                        <div class="card-header">
+                            <h2 class="card-title" id="membersTitle">Researchers <span class="status-text" id="membersCount"></span></h2>
+                        </div>
+                        <ul class="member-list" id="memberList"></ul>
+                        <p class="list-note" id="membersNote" hidden></p>
+                        <div class="card-footer" id="membersFooter" hidden>
+                            <button type="button" class="btn btn-secondary btn-sm" id="membersMore">Show all researchers</button>
+                        </div>
+                    </section>
+
+                    <section class="card" aria-labelledby="yearTitle">
+                        <div class="card-header">
+                            <h2 class="card-title" id="yearTitle">Shared works per year</h2>
+                        </div>
+                        <div class="chart-container chart-container-sm">
+                            <canvas id="perYearChart" role="img" aria-describedby="yearSummary"></canvas>
+                        </div>
+                        <p class="chart-summary" id="yearSummary"></p>
+                    </section>
+
+                    <section class="card" aria-labelledby="topicsTitle">
+                        <div class="card-header">
+                            <h2 class="card-title" id="topicsTitle">Topics</h2>
+                        </div>
+                        <ul class="stat-list" id="topicList"></ul>
+                    </section>
+
+                    <section class="card" aria-labelledby="typesTitle">
+                        <div class="card-header">
+                            <h2 class="card-title" id="typesTitle">Publication types</h2>
+                        </div>
+                        <ul class="stat-list" id="typeList"></ul>
+                    </section>
+                </aside>
+            </div>
+        </div>
+    </main>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        const params = new URLSearchParams(location.search);
+        const FOCUS = params.get('orcid');
+        // The network's own query (its filters), as the network page built it
+        const networkParams = new URLSearchParams(location.search);
+        networkParams.delete('orcid');
+        networkParams.delete('view');
+        networkParams.delete('from');
+        const NETWORK_QUERY = networkParams.toString();
+        // Opened from the author page (all their works) rather than by clicking a node on the network
+        const FROM_AUTHOR = params.get('from') === 'author';
+        const AUTHOR_URL = `/author/${encodeURIComponent(FOCUS)}`;
+
+        const LARGE_CONSTELLATION = 60;   // above this, open on direct collaborators
+        const MAP_MAX_NODES = 120;        // larger groups map only their most active members
+        const MAP_LABEL_MAX = 30;         // names drawn on the map up to this many nodes
+        const PAGE = { pairs: 15, members: 12, works: 20 };
+
+        const el = id => document.getElementById(id);
+        const tooltip = d3.select('#tooltip');
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.color = '#475569';
+
+        let data = null;
+        let members = new Map();          // orcid -> member
+        let view = null;                  // current scope's members / pairs / works / stats
+        let scope = params.get('view') === 'direct' ? 'direct' : params.get('view') === 'constellation' ? 'constellation' : null;
+        let selection = null;             // null | { type: 'member', id } | { type: 'pair', a, b }
+        let shown = { ...PAGE };
+        let perYearChart = null;
+
+        const nameOf = id => members.get(id)?.name || id;
+        const familyName = id => {
+            const name = members.get(id)?.name;
+            if (!name) return id.slice(-4);
+            const parts = name.replace(/,.*$/, '').split(/\s+/);
+            return name.includes(',') ? name.split(',')[0] : parts[parts.length - 1];
+        };
+
+        // ---- Header: filters of the network this came from
+
+        function renderFilterSummary() {
+            const parts = [];
+            const start = networkParams.get('startYear'), end = networkParams.get('endYear');
+            if (start || end) parts.push(start === end ? start : `${start}–${end}`);
+            const labels = { type: 'Type', subject: 'Subject', keyword: 'Keyword', institute: 'Institute' };
+            Object.entries(labels).forEach(([name, label]) => {
+                const values = networkParams.getAll(name);
+                if (!values.length) return;
+                const shownValue = name === 'type' ? formatType(values[0]) : values[0];
+                parts.push(values.length === 1 ? `${label}: ${shownValue}` : `${label}: ${values.length} selected`);
+            });
+            el('filterSummary').innerHTML = parts.map(p => `<span class="badge filter-badge">${escapeHtml(p)}</span>`).join('');
+        }
+
+        // Back to where this page was opened from (the network with its graph, or the author page);
+        // history.back() keeps that page as it was when it is the previous entry
+        const BACK_PATH = FROM_AUTHOR ? AUTHOR_URL : '/network';
+        el('backLink').href = FROM_AUTHOR ? AUTHOR_URL : `/network?${NETWORK_QUERY}`;
+        el('backLink').lastChild.textContent = FROM_AUTHOR ? ' Back to author' : ' Back to network';
+        el('backLink').addEventListener('click', e => {
+            try {
+                const ref = new URL(document.referrer);
+                if (ref.origin === location.origin && decodeURIComponent(ref.pathname) === decodeURIComponent(BACK_PATH)) {
+                    e.preventDefault();
+                    history.back();
+                }
+            } catch { /* no referrer: follow the link */ }
+        });
+
+        // ---- Load
+
+        async function load() {
+            renderFilterSummary();
+            try {
+                const response = await fetch(`/api/coauthorship/constellation?${location.search.slice(1)}`);
+                const body = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    showError(response.status === 404
+                        ? `This researcher has no works matching these network filters. <a href="/network?${escapeHtml(NETWORK_QUERY)}">Back to the network</a>`
+                        : `Unable to load this collaboration (${escapeHtml(body.error || `HTTP ${response.status}`)}). Please reload the page.`);
+                    return;
+                }
+                data = body;
+                members = new Map(data.members.map(m => [m.orcid_id, m]));
+                NetworkViewed.add(NETWORK_QUERY, FOCUS);
+
+                const name = nameOf(FOCUS);
+                document.title = `${name} - Collaboration - UAEH Researchers Network`;
+                el('focusName').textContent = name;
+                if (FROM_AUTHOR) el('backLink').lastChild.textContent = ` Back to ${name}`;
+                if (!scope) scope = data.stats.members > LARGE_CONSTELLATION ? 'direct' : 'constellation';
+                setupScopeBar();
+                render();
+            } catch (error) {
+                console.error('Error loading collaboration:', error);
+                showError('Unable to load this collaboration. Please check your connection and reload the page.');
+            }
+        }
+
+        function showError(html) {
+            el('focusName').textContent = 'Collaboration';
+            el('collabContent').innerHTML = `<div class="card">${emptyState('alert', html)}</div>`;
+        }
+
+        // ---- Scope: whole constellation or the opened researcher's direct collaborators
+
+        function setupScopeBar() {
+            const direct = directIds();
+            const solo = data.stats.members === 1;
+            el('scopeBar').hidden = solo && !FROM_AUTHOR;
+            el('scopeBar').querySelector('.segmented').hidden = solo;
+            // From the author page, offer the same constellation in the network graph
+            if (FROM_AUTHOR) {
+                el('networkLink').hidden = false;
+                el('networkLink').href = `/network?${NETWORK_QUERY}`;
+                el('networkLink').innerHTML = `${ICONS.network}View in network graph`;
+            }
+            el('countConstellation').textContent = `(${data.stats.members.toLocaleString()})`;
+            el('countDirect').textContent = `(${(direct.size - 1).toLocaleString()})`;
+            document.querySelectorAll('.segmented-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (btn.dataset.scope === scope) return;
+                    scope = btn.dataset.scope;
+                    selection = null;
+                    shown = { ...PAGE };
+                    const url = new URLSearchParams(location.search);
+                    url.set('view', scope);
+                    history.replaceState(null, '', `${location.pathname}?${url}`);
+                    render();
+                });
+            });
+        }
+
+        function directIds() {
+            const ids = new Set([FOCUS]);
+            data.pairs.forEach(p => {
+                if (p.source === FOCUS) ids.add(p.target);
+                if (p.target === FOCUS) ids.add(p.source);
+            });
+            return ids;
+        }
+
+        // Works the researcher shares with the opened one (0 for the opened researcher)
+        function withFocus(id) {
+            const pair = data.pairs.find(p => (p.source === FOCUS && p.target === id) || (p.target === FOCUS && p.source === id));
+            return pair ? pair.weight : 0;
+        }
+
+        function buildView() {
+            if (scope === 'constellation' || data.stats.members === 1) {
+                return {
+                    members: data.members,
+                    pairs: data.pairs,
+                    works: data.works,
+                    stats: data.stats,
+                    perYear: data.per_year,
+                    topics: data.topics,
+                    types: data.types,
+                    totals: { members: data.stats.members, pairs: data.pairs_total, works: data.works_total }
+                };
+            }
+            // Everything involving the opened researcher is always in the response, so this view is complete
+            const ids = directIds();
+            const pairs = data.pairs.filter(p => ids.has(p.source) && ids.has(p.target));
+            const works = data.works.filter(w => w.members.includes(FOCUS));
+            const years = works.map(w => w.publication_year).filter(Boolean);
+            const count = values => Object.entries(values.reduce((acc, v) => (acc[v] = (acc[v] || 0) + 1, acc), {}))
+                .map(([value, count]) => ({ value, count }))
+                .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+            return {
+                // Strongest collaborators of the opened researcher first
+                members: data.members.filter(m => ids.has(m.orcid_id))
+                    .sort((a, b) => (a.orcid_id !== FOCUS) - (b.orcid_id !== FOCUS) || withFocus(b.orcid_id) - withFocus(a.orcid_id)),
+                pairs,
+                works,
+                stats: {
+                    members: ids.size,
+                    links: pairs.length,
+                    shared_works: works.length,
+                    collaborations: pairs.reduce((n, p) => n + p.weight, 0),
+                    first_year: years.length ? Math.min(...years) : null,
+                    last_year: years.length ? Math.max(...years) : null
+                },
+                perYear: count(years).map(d => ({ year: Number(d.value), count: d.count })).sort((a, b) => a.year - b.year),
+                topics: count(works.flatMap(w => w.topics)).slice(0, 10),
+                types: count(works.map(w => w.type).filter(Boolean)).slice(0, 10),
+                totals: { members: ids.size, pairs: pairs.length, works: works.length }
+            };
+        }
+
+        function render() {
+            view = buildView();
+            document.querySelectorAll('.segmented-btn').forEach(btn => {
+                btn.setAttribute('aria-pressed', String(btn.dataset.scope === scope));
+            });
+            const s = view.stats;
+            const solo = data.stats.members === 1;
+            el('collabSubtitle').textContent = solo
+                ? 'No co-authors with an ORCID iD in this network. Their works matching the filters are listed below.'
+                : scope === 'direct'
+                    ? `${nameOf(FOCUS)} and the ${(s.members - 1).toLocaleString()} researchers they published with.`
+                    : `A constellation of ${s.members.toLocaleString()} researchers connected through ${s.shared_works.toLocaleString()} shared works.`;
+            el('worksTitle').firstChild.textContent = solo ? 'Works ' : 'Shared works ';
+            renderKpis();
+            renderMap();
+            renderPairs();
+            renderMembers();
+            renderWorks();
+            renderPerYear();
+            renderBreakdown(el('topicList'), view.topics, v => v, 'No topics recorded.');
+            renderBreakdown(el('typeList'), view.types, formatType, 'No types recorded.');
+        }
+
+        // ---- Stat tiles
+
+        function renderKpis() {
+            const s = view.stats;
+            const strongest = view.pairs[0];
+            const years = s.first_year ? (s.first_year === s.last_year ? `${s.first_year}` : `${s.first_year}–${s.last_year}`) : '—';
+            const kpis = [
+                ['Researchers', s.members.toLocaleString(), scope === 'direct' ? `incl. ${nameOf(FOCUS)}` : 'with an ORCID iD'],
+                [data.stats.members === 1 ? 'Works' : 'Shared works', s.shared_works.toLocaleString(),
+                    data.stats.members === 1 ? 'matching the network filters' : 'by two or more of them'],
+                ['Collaborating pairs', s.links.toLocaleString(),
+                    strongest ? `Strongest: ${familyName(strongest.source)} & ${familyName(strongest.target)} · ${strongest.weight}` : 'No co-authors'],
+                ['Active', years, s.first_year ? `${s.last_year - s.first_year + 1} years` : '']
+            ];
+            el('kpiGrid').innerHTML = kpis.map(([label, value, note]) => `
+                <div class="kpi">
+                    <div class="kpi-label">${label}</div>
+                    <div class="kpi-value">${escapeHtml(value)}</div>
+                    <div class="kpi-note">${escapeHtml(note)}</div>
+                </div>`).join('');
+            el('kpiGrid').setAttribute('aria-busy', 'false');
+        }
+
+        // ---- Map (SVG; nodes are keyboard-focusable buttons)
+
+        function renderMap() {
+            const mapEl = el('collabMap');
+            if (data.stats.members === 1) {
+                el('mapCard').hidden = true;
+                return;
+            }
+            el('mapCard').hidden = false;
+            // Direct view: node size = works shared with the opened researcher
+            const sizeOf = m => scope === 'direct' && data.stats.members > 1
+                ? (m.orcid_id === FOCUS ? view.stats.shared_works : withFocus(m.orcid_id))
+                : (m.shared_works || m.works);
+            const nodeList = view.members.slice(0, MAP_MAX_NODES).map(m => ({ id: m.orcid_id, works: Math.max(1, sizeOf(m)) }));
+            const labels = nodeList.length <= MAP_LABEL_MAX;
+            const ids = new Set(nodeList.map(n => n.id));
+            const linkList = view.pairs.filter(p => ids.has(p.source) && ids.has(p.target))
+                .map(p => ({ source: p.source, target: p.target, weight: p.weight }));
+            el('mapSummary').textContent = view.members.length > MAP_MAX_NODES || view.totals.members > view.members.length
+                ? `The map shows the ${nodeList.length} most active of ${view.totals.members.toLocaleString()} researchers. The tables list the rest.`
+                : `${nodeList.length} researchers and ${linkList.length} collaborating pairs. Line thickness shows how many works a pair shares. Select a researcher or line to list their works.`;
+
+            const width = Math.max(320, mapEl.clientWidth || 640);
+            const height = Math.round(Math.min(460, Math.max(300, width * 0.55)));
+            const maxWorks = d3.max(nodeList, n => n.works) || 1;
+            const maxWeight = d3.max(linkList, l => l.weight) || 1;
+            const radius = d3.scaleSqrt().domain([1, maxWorks]).range([6, 18]);
+            const stroke = d3.scaleLinear().domain([1, maxWeight]).range([1.25, 6]);
+
+            // A fixed number of ticks gives a still, readable layout instead of a moving one
+            const simulation = d3.forceSimulation(nodeList)
+                .force('link', d3.forceLink(linkList).id(d => d.id).distance(nodeList.length > 40 ? 40 : 70))
+                .force('charge', d3.forceManyBody().strength(nodeList.length > 40 ? -80 : -220))
+                .force('collide', d3.forceCollide(d => radius(d.works) + (labels ? 18 : 4)))
+                .force('x', d3.forceX(0).strength(0.06))
+                .force('y', d3.forceY(0).strength(0.08))
+                .stop();
+            for (let i = 0; i < 300; i++) simulation.tick();
+
+            // Room for the largest node, and for names under the nodes when they are drawn
+            const pad = 24 + radius(maxWorks);
+            const labelRoom = nodeList.length <= MAP_LABEL_MAX ? 18 : 0;
+            const [x0, x1] = d3.extent(nodeList, d => d.x), [y0, y1] = d3.extent(nodeList, d => d.y);
+            const scale = Math.min((width - 2 * pad - 60 * Math.sign(labelRoom)) / Math.max(1, x1 - x0),
+                (height - 2 * pad - labelRoom) / Math.max(1, y1 - y0), 1.6);
+            const tx = d => (d.x - (x0 + x1) / 2) * scale + width / 2;
+            const ty = d => (d.y - (y0 + y1) / 2) * scale + (height - labelRoom) / 2;
+
+            mapEl.innerHTML = '';
+            const svg = d3.select(mapEl).append('svg')
+                .attr('viewBox', `0 0 ${width} ${height}`)
+                .attr('width', '100%').attr('height', height)
+                .attr('role', 'group').attr('aria-label', 'Constellation map');
+
+            svg.append('g').attr('class', 'map-links').selectAll('line').data(linkList).join('line')
+                .attr('class', 'map-link')
+                .attr('x1', d => tx(d.source)).attr('y1', d => ty(d.source))
+                .attr('x2', d => tx(d.target)).attr('y2', d => ty(d.target))
+                .attr('stroke-width', d => stroke(d.weight))
+                .on('mouseenter', (event, d) => showTip(event, `${escapeHtml(nameOf(d.source.id))} & ${escapeHtml(nameOf(d.target.id))}<br>${d.weight} shared ${d.weight === 1 ? 'work' : 'works'}`))
+                .on('mousemove', moveTip)
+                .on('mouseleave', hideTip)
+                .on('click', (event, d) => select({ type: 'pair', a: d.source.id, b: d.target.id }));
+
+            const node = svg.append('g').selectAll('g').data(nodeList).join('g')
+                .attr('class', d => `map-node${d.id === FOCUS ? ' is-focus' : ''}`)
+                .attr('transform', d => `translate(${tx(d)},${ty(d)})`)
+                .attr('tabindex', 0)
+                .attr('role', 'button')
+                .attr('aria-label', d => `${nameOf(d.id)}, ${d.works} shared works. Show their works.`)
+                .on('mouseenter', (event, d) => showTip(event, `${escapeHtml(nameOf(d.id))}<br>${d.works} shared ${d.works === 1 ? 'work' : 'works'}`))
+                .on('mousemove', moveTip)
+                .on('mouseleave', hideTip)
+                .on('click', (event, d) => select({ type: 'member', id: d.id }))
+                .on('keydown', (event, d) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        select({ type: 'member', id: d.id });
+                    }
+                });
+            node.append('circle').attr('r', d => radius(d.works));
+            if (labels) {
+                // Surname labels; add the first initial where two researchers share one
+                const short = new Map(nodeList.map(d => [d.id, familyName(d.id)]));
+                const taken = d3.rollup(nodeList, v => v.length, d => short.get(d.id));
+                const label = d => {
+                    const name = members.get(d.id)?.name;
+                    return taken.get(short.get(d.id)) > 1 && name ? `${name.trim()[0]}. ${short.get(d.id)}` : short.get(d.id);
+                };
+                node.append('text')
+                    .attr('class', 'map-label')
+                    .attr('y', d => radius(d.works) + 13)
+                    .text(label);
+            }
+            highlightMap();
+        }
+
+        function highlightMap() {
+            const svg = d3.select('#collabMap svg');
+            if (svg.empty()) return;
+            const active = selection?.type === 'member' ? new Set([selection.id])
+                : selection?.type === 'pair' ? new Set([selection.a, selection.b]) : null;
+            svg.selectAll('.map-node')
+                .classed('is-selected', d => active?.has(d.id))
+                .classed('is-dimmed', d => active && !active.has(d.id) &&
+                    !(selection.type === 'member' && view.pairs.some(p => (p.source === selection.id && p.target === d.id) || (p.target === selection.id && p.source === d.id))));
+            svg.selectAll('.map-link')
+                .classed('is-selected', d => selection && (
+                    (selection.type === 'pair' && [d.source.id, d.target.id].sort().join() === [selection.a, selection.b].sort().join()) ||
+                    (selection.type === 'member' && (d.source.id === selection.id || d.target.id === selection.id))))
+                .classed('is-dimmed', function () { return selection && !this.classList.contains('is-selected'); });
+        }
+
+        function showTip(event, html) {
+            tooltip.style('opacity', 1).html(html);
+            moveTip(event);
+        }
+        function moveTip(event) {
+            tooltip.style('left', `${event.pageX + 12}px`).style('top', `${event.pageY - 12}px`);
+        }
+        function hideTip() {
+            tooltip.style('opacity', 0);
+        }
+
+        // ---- Collaborations table
+
+        function renderPairs() {
+            const pairs = view.pairs;
+            el('pairsCount').textContent = `· ${view.totals.pairs.toLocaleString()}`;
+            if (!pairs.length) {
+                el('pairRows').innerHTML = `<tr><td colspan="5">${emptyState('search', 'No collaborations between researchers with an ORCID iD under these filters.')}</td></tr>`;
+                el('pairsFooter').hidden = el('pairsNote').hidden = true;
+                return;
+            }
+            const max = pairs[0].weight;
+            const person = id => id === FOCUS ? `<strong>${escapeHtml(nameOf(id))}</strong>` : escapeHtml(nameOf(id));
+            el('pairRows').innerHTML = pairs.slice(0, shown.pairs).map(p => {
+                const selected = selection?.type === 'pair' && [p.source, p.target].sort().join() === [selection.a, selection.b].sort().join();
+                const years = p.first_year ? (p.first_year === p.last_year ? p.first_year : `${p.first_year}–${p.last_year}`) : '—';
+                return `
+                    <tr class="${selected ? 'is-selected' : ''}">
+                        <td data-label="Researchers"><span class="pair-names">${person(p.source)} <span class="pair-sep" aria-label="and">&</span> ${person(p.target)}</span></td>
+                        <td data-label="Shared works">
+                            <div class="pair-weight"><span class="stat-value">${p.weight}</span>
+                                <span class="stat-bar"><span class="stat-bar-fill" style="width: ${(100 * p.weight) / max}%"></span></span></div>
+                        </td>
+                        <td data-label="Years" class="pair-years">${years}</td>
+                        <td data-label="Main topics" class="pair-topics">${p.topics.length ? p.topics.map(escapeHtml).join(' · ') : '—'}</td>
+                        <td class="pair-action">
+                            <button type="button" class="btn btn-secondary btn-sm" data-a="${escapeHtml(p.source)}" data-b="${escapeHtml(p.target)}"
+                                aria-pressed="${selected}" aria-label="Show the ${p.weight} works shared by ${escapeHtml(nameOf(p.source))} and ${escapeHtml(nameOf(p.target))}">
+                                Works
+                            </button>
+                        </td>
+                    </tr>`;
+            }).join('');
+            el('pairRows').querySelectorAll('[data-a]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const pick = { type: 'pair', a: btn.dataset.a, b: btn.dataset.b };
+                    select(btn.getAttribute('aria-pressed') === 'true' ? null : pick, true);
+                });
+            });
+            el('pairsFooter').hidden = pairs.length <= shown.pairs;
+            el('pairsNote').hidden = view.totals.pairs <= pairs.length;
+            el('pairsNote').textContent = `Listing the ${pairs.length.toLocaleString()} strongest of ${view.totals.pairs.toLocaleString()} pairs, including all of ${nameOf(FOCUS)}'s.`;
+        }
+
+        el('pairsMore').addEventListener('click', () => { shown.pairs += PAGE.pairs; renderPairs(); });
+
+        // ---- Researchers list
+
+        function renderMembers() {
+            const list = view.members;
+            el('membersCount').textContent = `· ${view.totals.members.toLocaleString()}`;
+            el('memberList').innerHTML = list.slice(0, shown.members).map(m => {
+                const selected = selection?.type === 'member' && selection.id === m.orcid_id;
+                const name = escapeHtml(m.name || m.orcid_id);
+                const link = m.in_dataset
+                    ? `<a href="/author/${encodeURIComponent(m.orcid_id)}">${name}</a>`
+                    : `<a href="https://orcid.org/${encodeURIComponent(m.orcid_id)}" target="_blank" rel="noopener noreferrer">${name}<span class="visually-hidden"> (ORCID, opens in a new tab)</span></a>`;
+                const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+                // Direct view: what each person shares with the opened researcher
+                const meta = data.stats.members === 1
+                    ? plural(m.works, 'work')
+                    : scope === 'direct' && m.orcid_id !== FOCUS
+                        ? `${plural(withFocus(m.orcid_id), 'shared work')} with ${escapeHtml(familyName(FOCUS))}`
+                        : scope === 'direct'
+                            ? `${plural(view.stats.shared_works, 'shared work')} · ${plural(view.stats.members - 1, 'collaborator')}`
+                            : `${plural(m.shared_works, 'shared work')} · ${plural(m.collaborators, 'collaborator')}`;
+                return `
+                    <li class="member-item${selected ? ' is-selected' : ''}">
+                        <div class="member-main">
+                            <div class="member-name">${link}${m.orcid_id === FOCUS ? ' <span class="badge member-badge">Opened</span>' : ''}</div>
+                            <div class="member-meta">${meta}</div>
+                            ${m.institutions.length ? `<div class="member-meta">${escapeHtml(m.institutions[0])}</div>` : ''}
+                        </div>
+                        ${data.stats.members > 1 ? `<button type="button" class="btn btn-secondary btn-sm" data-member="${escapeHtml(m.orcid_id)}"
+                            aria-pressed="${selected}" aria-label="Show works of ${name} in this constellation">Works</button>` : ''}
+                    </li>`;
+            }).join('');
+            el('memberList').querySelectorAll('[data-member]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const pick = { type: 'member', id: btn.dataset.member };
+                    select(btn.getAttribute('aria-pressed') === 'true' ? null : pick, true);
+                });
+            });
+            el('membersFooter').hidden = list.length <= shown.members;
+            el('membersNote').hidden = view.totals.members <= list.length;
+            el('membersNote').textContent = `Listing the ${list.length.toLocaleString()} most active of ${view.totals.members.toLocaleString()} researchers.`;
+        }
+
+        el('membersMore').addEventListener('click', () => { shown.members = view.members.length; renderMembers(); });
+
+        // ---- Selection (a researcher or a pair) filters the works list
+
+        function select(pick, scrollToWorks = false) {
+            selection = pick;
+            shown.works = PAGE.works;
+            renderPairs();
+            renderMembers();
+            renderWorks();
+            highlightMap();
+            if (scrollToWorks && pick) el('worksCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function selectedWorks() {
+            if (!selection) return view.works;
+            if (selection.type === 'member') return view.works.filter(w => w.members.includes(selection.id));
+            return view.works.filter(w => w.members.includes(selection.a) && w.members.includes(selection.b));
+        }
+
+        function renderWorks() {
+            const works = selectedWorks();
+            const bar = el('selectionBar');
+            if (selection) {
+                const label = selection.type === 'member'
+                    ? `Works with ${nameOf(selection.id)}`
+                    : `Works by ${nameOf(selection.a)} & ${nameOf(selection.b)}`;
+                bar.hidden = false;
+                bar.innerHTML = `
+                    <button type="button" class="filter-chip active removable-chip" aria-label="Remove selection: ${escapeHtml(label)}">
+                        <span class="removable-chip-label">${escapeHtml(label)}</span>${ICONS.close}
+                    </button>`;
+                bar.querySelector('button').addEventListener('click', () => select(null));
+            } else {
+                bar.hidden = true;
+                bar.innerHTML = '';
+            }
+
+            const total = selection ? works.length : view.totals.works;
+            el('worksCount').textContent = `· ${total.toLocaleString()}`;
+            el('workList').innerHTML = works.length
+                ? works.slice(0, shown.works).map(renderSharedWork).join('')
+                : `<li>${emptyState('search', 'No listed works for this selection. <button type="button" class="link-btn" data-clear-selection>Show all works</button>')}</li>`;
+            el('workList').querySelector('[data-clear-selection]')?.addEventListener('click', () => select(null));
+            el('worksFooter').hidden = works.length <= shown.works;
+            const truncated = !selection && view.totals.works > works.length;
+            el('worksNote').hidden = !truncated;
+            el('worksNote').textContent = `Listing the ${works.length.toLocaleString()} most recent of ${view.totals.works.toLocaleString()} shared works, including all of ${nameOf(FOCUS)}'s. Years, topics and types above cover all of them.`;
+        }
+
+        el('worksMore').addEventListener('click', () => { shown.works += PAGE.works; renderWorks(); });
+
+        function renderSharedWork(work) {
+            const inGroup = work.members.map(id => `<span class="member-chip${id === FOCUS ? ' is-focus' : ''}">${escapeHtml(nameOf(id))}</span>`).join('');
+            const topics = work.topics.length ? `<div class="work-topics">${work.topics.slice(0, 3).map(escapeHtml).join(' · ')}</div>` : '';
+            const chips = data.stats.members > 1
+                ? `<div class="member-chips"><span class="visually-hidden">Researchers from this constellation: </span>${inGroup}</div>` : '';
+            return renderWork(work, chips + topics);
+        }
+
+        // ---- Sidebar charts
+
+        function renderPerYear() {
+            const series = view.perYear;
+            const summary = el('yearSummary');
+            const canvas = el('perYearChart');
+            perYearChart?.destroy();
+            perYearChart = null;
+            if (!series.length) {
+                summary.textContent = 'No publication years recorded.';
+                canvas.hidden = true;
+                return;
+            }
+            canvas.hidden = false;
+            const counts = new Map(series.map(d => [d.year, d.count]));
+            const first = series[0].year, last = series[series.length - 1].year;
+            const labels = [], values = [];
+            for (let y = first; y <= last; y++) {
+                labels.push(y);
+                values.push(counts.get(y) || 0);
+            }
+            const peak = series.reduce((a, b) => (b.count > a.count ? b : a));
+            summary.textContent = `Most in ${peak.year} (${peak.count}). ${series.reduce((n, d) => n + d.count, 0)} dated works between ${first} and ${last}.`;
+            perYearChart = new Chart(canvas, {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Works', data: values, backgroundColor: '#1e40af', borderRadius: 3 }] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#e2e8f0' } },
+                        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 8 } }
+                    }
+                }
+            });
+        }
+
+        function renderBreakdown(list, items, label, emptyText) {
+            if (!items.length) {
+                list.innerHTML = `<li class="stat-item"><span class="stat-label">${emptyText}</span></li>`;
+                return;
+            }
+            const max = items[0].count;
+            list.innerHTML = items.map(item => `
+                <li class="stat-item">
+                    <div style="flex: 1; min-width: 0;">
+                        <div class="stat-label">${escapeHtml(label(item.value))}</div>
+                        <div class="stat-bar"><div class="stat-bar-fill" style="width: ${(100 * item.count) / max}%"></div></div>
+                    </div>
+                    <div class="stat-value">${item.count.toLocaleString()}</div>
+                </li>`).join('');
+        }
+
+        // Redraw the map at the new width when the window is resized
+        let resizeTimer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => { if (data) { renderMap(); } }, 200);
+        });
+
+        load();
+    </script>
+</body>
+
+</html>

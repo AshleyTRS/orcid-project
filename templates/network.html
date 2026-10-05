@@ -8,6 +8,7 @@
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <link rel="stylesheet" href="/static/styles/main.css">
     <script src="/static/js/uaeh-institutes.js"></script>
+    <script src="/static/js/network-viewed.js"></script>
 </head>
 
 <body>
@@ -62,7 +63,16 @@
                     </div>
                 </div>
             </div>
-            <p class="network-hint">Scroll to zoom, drag to pan or move a node, and click a node to highlight its co-authors.</p>
+            <div class="network-footer">
+                <p class="network-hint">Hover a node to highlight its constellation, click it to see who collaborated on what.
+                    Scroll to zoom, drag to pan or move a node.</p>
+                <div class="network-legend" id="networkLegend" hidden>
+                    <span class="legend-item"><span class="legend-swatch" aria-hidden="true"></span>Not viewed</span>
+                    <span class="legend-item"><span class="legend-swatch is-viewed-group" aria-hidden="true"></span>Viewed constellation</span>
+                    <span class="legend-item"><span class="legend-swatch is-viewed" aria-hidden="true"></span>Opened researcher</span>
+                    <button type="button" class="link-btn" id="clearViewedBtn">Clear viewed</button>
+                </div>
+            </div>
         </section>
     </main>
 
@@ -80,6 +90,11 @@
 
         const NODE_COLOR = "#2563eb";
         const NODE_HOVER_STROKE = "#172554";
+        // Viewed constellations: violet (the "visited link" convention) plus a ring,
+        // so the state does not rely on color alone
+        const VIEWED_GROUP_COLOR = "#8b5cf6";
+        const VIEWED_COLOR = "#6d28d9";
+        const VIEWED_RING = "#4c1d95";
         const LINK_COLOR = "#94a3b8";
         const LINK_OPACITY = 0.6;
 
@@ -104,7 +119,10 @@
         let linkBuckets = [];          // links grouped by stroke width -> one lineWidth change per group
         let maxRadius = 0;
         let adjacency = new Map();     // node id -> { neighbors: Set<id>, links: [] }
-        let focusedNode = null;
+        let components = new Map();    // component id -> { nodes: [], links: [] } (constellations)
+        let focusedComponent = null;   // constellation highlighted while hovering
+        let viewedIds = new Set();     // researchers whose details were opened from this network
+        let viewedComponents = new Set();
         let hoveredNode = null;
         let quadtree = null;           // spatial index for hit testing, rebuilt lazily
         let requestId = 0;
@@ -205,6 +223,7 @@
 
         endYearInput.value = CURRENT_YEAR;
         FILTERS.forEach(config => multiselects.set(config.name, createMultiselect(config)));
+        restoreFiltersFromUrl();
 
         function escapeHtml(value) {
             return String(value ?? '')
@@ -441,9 +460,14 @@
                 if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
 
                 lastGeneratedQuery = query;
-                // Start each new graph from an un-zoomed view
-                d3.select(canvas).call(zoom.transform, d3.zoomIdentity);
-                updateGraph(data);
+                // The URL holds the filters, so Back from a detail page (or a reload) rebuilds this graph
+                history.replaceState(null, '', `${location.pathname}?${query}`);
+                const saved = readSavedLayout(query);
+                updateGraph(data, saved);
+                // Start each new graph from an un-zoomed view, or where the user left it
+                d3.select(canvas).call(zoom.transform, saved?.transform
+                    ? d3.zoomIdentity.translate(saved.transform.x, saved.transform.y).scale(saved.transform.k)
+                    : d3.zoomIdentity);
                 const summary = `${data.nodes.length.toLocaleString()} authors · ${data.edges.length.toLocaleString()} collaborations`;
                 statsEl.dataset.summary = summary;
                 statsEl.textContent = summary;
@@ -462,7 +486,7 @@
             }
         }
 
-        function updateGraph(data) {
+        function updateGraph(data, saved = null) {
             const maxPub = d3.max(data.nodes, d => d.publications) || 1;
             const maxWeight = d3.max(data.edges, d => d.weight) || 1;
 
@@ -479,10 +503,10 @@
             for (const n of nodes) {
                 n.radius = nodeSizeScale(n.publications);
                 if (n.radius > maxRadius) maxRadius = n.radius;
-                const old = previous.get(n.id);
+                const old = previous.get(n.id) || saved?.positions[n.id];
                 if (old) {
-                    n.x = old.x;
-                    n.y = old.y;
+                    n.x = old.x ?? old[0];
+                    n.y = old.y ?? old[1];
                 }
             }
 
@@ -502,12 +526,114 @@
             const buckets = d3.group(links, l => Math.round(edgeWidthScale(l.weight) * 2) / 2);
             linkBuckets = Array.from(buckets, ([lineWidth, group]) => ({ lineWidth, links: group }));
 
-            focusedNode = null;
+            computeComponents();
+            focusedComponent = null;
             setHovered(null);
             quadtree = null;
+            refreshViewed();
 
+            // A layout restored from the last visit only needs to settle, not re-form
+            const restored = saved && nodes.every(n => saved.positions[n.id]);
             const reused = nodes.length > 0 && nodes.every(n => previous.has(n.id));
-            simulation.alpha(reused ? 0.3 : 1).restart();
+            simulation.alpha(restored ? 0.02 : reused ? 0.3 : 1).restart();
+        }
+
+        // Constellations = connected components; each node gets n.component
+        function computeComponents() {
+            components = new Map();
+            let next = 0;
+            for (const start of nodes) {
+                if (start.component !== undefined && start._built === nodes) continue;
+                const id = next++;
+                const members = [];
+                const stack = [start];
+                start.component = id;
+                start._built = nodes;
+                while (stack.length) {
+                    const n = stack.pop();
+                    members.push(n);
+                    for (const l of adjacency.get(n.id).links) {
+                        const other = l.source === n ? l.target : l.source;
+                        if (other._built !== nodes) {
+                            other.component = id;
+                            other._built = nodes;
+                            stack.push(other);
+                        }
+                    }
+                }
+                components.set(id, { id, nodes: members, links: [] });
+            }
+            for (const l of links) components.get(l.source.component).links.push(l);
+        }
+
+        // ---- Viewed constellations ---------------------------------------
+
+        const legend = document.getElementById('networkLegend');
+
+        function refreshViewed() {
+            viewedIds = lastGeneratedQuery ? NetworkViewed.get(lastGeneratedQuery) : new Set();
+            viewedComponents = new Set();
+            for (const n of nodes) if (viewedIds.has(n.id)) viewedComponents.add(n.component);
+            legend.hidden = nodes.length === 0;
+            document.getElementById('clearViewedBtn').hidden = viewedIds.size === 0;
+            requestDraw();
+        }
+
+        document.getElementById('clearViewedBtn').addEventListener('click', () => {
+            if (lastGeneratedQuery) NetworkViewed.clear(lastGeneratedQuery);
+            refreshViewed();
+        });
+
+        // Coming back with Back (page restored from cache) or after viewing in another tab
+        window.addEventListener('pageshow', refreshViewed);
+        window.addEventListener('storage', refreshViewed);
+
+        // ---- Keep the layout across visits ---------------------------------
+
+        const LAYOUT_KEY = 'uaeh:network:layout';
+
+        function readSavedLayout(query) {
+            try {
+                const saved = JSON.parse(sessionStorage.getItem(LAYOUT_KEY));
+                return saved && saved.query === query ? saved : null;
+            } catch {
+                return null;
+            }
+        }
+
+        function saveLayout() {
+            if (!lastGeneratedQuery || !nodes.length) return;
+            const positions = {};
+            for (const n of nodes) positions[n.id] = [Math.round(n.x * 10) / 10, Math.round(n.y * 10) / 10];
+            try {
+                sessionStorage.setItem(LAYOUT_KEY, JSON.stringify({
+                    query: lastGeneratedQuery,
+                    positions,
+                    transform: { x: currentTransform.x, y: currentTransform.y, k: currentTransform.k }
+                }));
+            } catch { /* too large for session storage: the graph is rebuilt from scratch */ }
+        }
+
+        window.addEventListener('pagehide', saveLayout);
+
+        // ---- Filters in the URL ---------------------------------------------
+
+        function restoreFiltersFromUrl() {
+            const params = new URLSearchParams(location.search);
+            if (!params.has('startYear')) return;
+            startYearInput.value = params.get('startYear');
+            endYearInput.value = params.get('endYear') || CURRENT_YEAR;
+            multiselects.forEach((state, name) => {
+                params.getAll(name).forEach(value => state.selected.add(value));
+                if (!state.selected.size) return;
+                updateMultiselectLabel(state);
+                // Load the option labels (e.g. "Journal article" for journal-article)
+                state.config.load().then(options => {
+                    state.options = options;
+                    updateMultiselectLabel(state);
+                }).catch(() => { /* raw values stay as labels */ });
+            });
+            generateNetwork();
         }
 
         // ---- Rendering ---------------------------------------------------
@@ -529,7 +655,7 @@
             // into one semi-transparent path makes the rasterizer treat it as
             // a single huge self-overlapping shape, which measured ~10x slower.
             context.strokeStyle = LINK_COLOR;
-            context.globalAlpha = focusedNode ? LINK_OPACITY * 0.05 : LINK_OPACITY;
+            context.globalAlpha = focusedComponent ? LINK_OPACITY * 0.05 : LINK_OPACITY;
             for (const bucket of linkBuckets) {
                 context.lineWidth = bucket.lineWidth / k;
                 for (const l of bucket.links) {
@@ -543,9 +669,9 @@
                 }
             }
 
-            if (focusedNode) {
-                context.globalAlpha = LINK_OPACITY;
-                for (const l of adjacency.get(focusedNode.id).links) {
+            if (focusedComponent) {
+                context.globalAlpha = 1;
+                for (const l of focusedComponent.links) {
                     context.lineWidth = edgeWidthScale(l.weight) / k;
                     context.beginPath();
                     context.moveTo(l.source.x, l.source.y);
@@ -554,17 +680,42 @@
                 }
             }
 
-            // Nodes: all circles in one path, one fill() call
-            context.fillStyle = NODE_COLOR;
-            context.globalAlpha = focusedNode ? 0.1 : 1;
-            fillNodes(nodes, k, vx0, vy0, vx1, vy1);
+            // Nodes: one path and one fill() per color (not viewed / viewed group / opened)
+            const plain = [], viewedGroup = [], opened = [];
+            for (const n of nodes) {
+                if (viewedIds.has(n.id)) opened.push(n);
+                else if (viewedComponents.has(n.component)) viewedGroup.push(n);
+                else plain.push(n);
+            }
+            const dimmed = n => focusedComponent && n.component !== focusedComponent.id;
+            for (const [list, color] of [[plain, NODE_COLOR], [viewedGroup, VIEWED_GROUP_COLOR], [opened, VIEWED_COLOR]]) {
+                if (!list.length) continue;
+                context.fillStyle = color;
+                if (focusedComponent) {
+                    context.globalAlpha = 0.1;
+                    fillNodes(list.filter(dimmed), k, vx0, vy0, vx1, vy1);
+                    context.globalAlpha = 1;
+                    fillNodes(list.filter(n => !dimmed(n)), k, vx0, vy0, vx1, vy1);
+                } else {
+                    context.globalAlpha = 1;
+                    fillNodes(list, k, vx0, vy0, vx1, vy1);
+                }
+            }
 
-            if (focusedNode) {
-                const neighbors = adjacency.get(focusedNode.id).neighbors;
-                const highlighted = [focusedNode];
-                for (const n of nodes) if (neighbors.has(n.id)) highlighted.push(n);
-                context.globalAlpha = 1;
-                fillNodes(highlighted, k, vx0, vy0, vx1, vy1);
+            // Rings mark viewed nodes without relying on color: thin for the group, thick for opened researchers
+            context.strokeStyle = VIEWED_RING;
+            for (const [list, ring] of [[viewedGroup, 1.25], [opened, 2.5]]) {
+                if (!list.length) continue;
+                context.lineWidth = ring / k;
+                context.globalAlpha = focusedComponent ? 0.6 : 1;
+                context.beginPath();
+                for (const n of list) {
+                    const r = n.radius / k + ring / (2 * k);
+                    if (n.x + r < vx0 || n.x - r > vx1 || n.y + r < vy0 || n.y - r > vy1) continue;
+                    context.moveTo(n.x + r, n.y);
+                    context.arc(n.x, n.y, r, 0, 2 * Math.PI);
+                }
+                context.stroke();
             }
 
             if (hoveredNode) {
@@ -612,10 +763,17 @@
                 return;
             }
             hoveredNode = node;
+            focusedComponent = node ? components.get(node.component) : null;
             canvas.style.cursor = node ? "pointer" : "default";
             if (node) {
+                const size = focusedComponent.nodes.length;
+                const viewed = viewedIds.has(node.id) ? 'Viewed'
+                    : viewedComponents.has(node.component) ? 'Constellation viewed' : '';
                 tooltip.style("opacity", 1)
-                    .html(`ORCID: ${node.id}<br>Publications: ${node.publications}`);
+                    .html(`ORCID: ${node.id}<br>Publications: ${node.publications}` +
+                        `<br>Constellation: ${size.toLocaleString()} ${size === 1 ? 'researcher' : 'researchers'}` +
+                        (viewed ? `<br><span class="tooltip-tag">${viewed}</span>` : '') +
+                        `<br><span class="tooltip-hint">Click for collaboration details</span>`);
                 if (event) moveTooltip(event);
             } else {
                 tooltip.style("opacity", 0);
@@ -634,11 +792,20 @@
             setHovered(findNode(px, py), event);
         }
 
-        // Clicking a node focuses its neighbourhood; clicking empty space clears it
+        // Clicking a node opens the details of its constellation under the same filters
+        // (Ctrl/Cmd-click opens them in a new tab)
         function onClick(event) {
+            if (event.defaultPrevented || !lastGeneratedQuery) return;  // end of a drag
             const [px, py] = d3.pointer(event, canvas);
-            focusedNode = findNode(px, py);
-            requestDraw();
+            const node = findNode(px, py);
+            if (!node) return;
+            const url = `/network/collaboration?orcid=${encodeURIComponent(node.id)}&${lastGeneratedQuery}`;
+            if (event.ctrlKey || event.metaKey) {
+                window.open(url, '_blank', 'noopener');
+            } else {
+                saveLayout();
+                location.href = url;
+            }
         }
 
         // The drag subject is expressed in screen coordinates so event.x/y can
